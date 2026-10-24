@@ -47,6 +47,7 @@ public:
         return static_cast<float>(quarter*1000.0*quarterMultiplier(division_));
     }
     float lastQuarterMs() const noexcept {
+        if(mode_==0 || mode_==3) return 60000.0f/bpm_;
         const float frames=mode_==1 ? midi_.quarterFrames : cv_.quarterFrames;
         return frames>0 ? 1000.0f*frames/sampleRate_ : 60000.0f/bpm_;
     }

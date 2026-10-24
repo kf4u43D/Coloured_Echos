@@ -25,7 +25,7 @@ const char* modelName(Model model) noexcept {
     case Model::TubeA04: return "tubea04";
     case Model::PingPong: return "pingpong";
     case Model::MultiHead: return "multihead";
-    case Model::LoRes: return "lores";
+    case Model::LoRes: return "8bit";
     case Model::Dynamic: return "dynamic";
     case Model::Tape: return "tape";
     case Model::Sweep: return "sweep";
@@ -105,8 +105,8 @@ void Engine::setParameters(const Parameters& p) noexcept {
     // integer delays (e.g. 250 ms at 48 kHz is exactly 12000 samples).
     delayTarget_ = std::max(1.0f, std::min(maximumSamples_,
         static_cast<float>(static_cast<double>(sampleRate_) * target_.delay_ms / 1000.0)));
-    target_.feedback = bounded(p.feedback, 0.0f, 2.0f, 0.35f);
-    target_.mix = bounded(p.mix, 0.0f, 1.0f, 0.35f);
+    target_.feedback = bounded(p.feedback, 0.0f, 2.0f, 0.28f);
+    target_.mix = bounded(p.mix, 0.0f, 1.0f, 0.39f);
     target_.tone_hz = bounded(p.tone_hz, 20.0f, 0.45f * sampleRate_, 3500.0f);
     target_.drive = bounded(p.drive, 0.0f, 1.0f, 0.4f);
     const int requestedModel=static_cast<int>(p.model);
@@ -122,7 +122,7 @@ void Engine::setParameters(const Parameters& p) noexcept {
     target_.attack_ms=bounded(p.attack_ms,0.1f,5000.0f,5.0f);
     target_.release_ms=bounded(p.release_ms,1.0f,10000.0f,250.0f);
     target_.swell_ms=bounded(p.swell_ms,1.0f,10000.0f,250.0f);
-    target_.stereo_ratio=bounded(p.stereo_ratio,0.25f,4.0f,1.5f);
+    target_.stereo_ratio=bounded(p.stereo_ratio,1.0f/24.0f,24.0f,1.5f);
     target_.loop_action=std::max(0,std::min(4,p.loop_action));
     target_.limiter_enabled=p.limiter_enabled;
     target_.limiter_ceiling=bounded(p.limiter_ceiling,0.01f,safety::maximumCeiling,safety::maximumCeiling);

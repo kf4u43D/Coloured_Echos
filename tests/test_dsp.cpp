@@ -82,6 +82,26 @@ void exact48kLongDelay() {
         near(r,0,0,"48k impulse remains in its input channel");
     }
 }
+void stereoMusicalRatios() {
+    struct Case { unsigned leftFrames; float ratio; unsigned rightFrames; };
+    const Case cases[]={{12,2.0f/3.0f,8},{24,1.0f/24.0f,1},{1,24,24},
+                        {8,24,24},{8,1.0f/24.0f,1}};
+    for (const auto& test : cases) {
+        Fixture f(8000,3);
+        auto p=neutralParameters();p.model=echolab::Model::StereoDelays;
+        p.delay_ms=test.leftFrames*.125f;p.stereo_ratio=test.ratio;
+        p.feedback=.5f;p.mix=1;p.modulation_enabled=false;
+        f.engine.setParameters(p);f.engine.reset();
+        near(f.engine.parameters().stereo_ratio,test.ratio,0,"musical stereo ratios retain exact triplet and full note-range ratios");
+        for (unsigned n=0;n<=240;++n) {
+            float l,r;f.engine.processSample(n == 0 ? .25f : 0,n == 0 ? -.125f : 0,l,r);
+            const float expectedL=n && n%test.leftFrames == 0 ? .25f*std::pow(.5f,static_cast<float>(n/test.leftFrames-1)) : 0;
+            const float expectedR=n && n%test.rightFrames == 0 ? -.125f*std::pow(.5f,static_cast<float>(n/test.rightFrames-1)) : 0;
+            near(l,expectedL,1e-7f,"Stereo left echo train retains its own note duration across right-ratio and memory limits");
+            near(r,expectedR,1e-7f,"Stereo right echo train follows exact musical ratios with independent one-sample and capacity clamps");
+        }
+    }
+}
 void pingPongTopology() {
     for (const auto input : {0,1,2,3}) {
         Fixture f(8000,2);
@@ -153,6 +173,9 @@ void multiHeadTopology() {
     check(steadyL>0 && steadyR>steadyL && steadyR<1.95f*steadyL,"MultiHead unity-gain soft saturation remains level dependent without preamplification");
 }
 void lowResolutionQuantization() {
+    check(static_cast<int>(echolab::Model::LoRes) == 5 &&
+          std::strcmp(echolab::modelName(echolab::Model::LoRes),"8bit") == 0,
+          "8bit is the canonical name of published model ID5");
     Fixture f;
     f.parameters(1,0.5f,1,echolab::Model::LoRes);
     auto p=f.engine.parameters();p.bit_depth=8;f.engine.setParameters(p);f.engine.reset();
@@ -338,7 +361,7 @@ void feedbackAboveUnityAndLimiter() {
     near(l,echolab::safety::maximumCeiling,2e-7f,"unprepared fallback obeys mandatory output headroom");
     near(r,.5f*echolab::safety::maximumCeiling,2e-7f,"output limiter links stereo gain and preserves channel ratio");
     const echolab::Parameters defaults;
-    check(defaults.limiter_enabled && defaults.drive == .4f && defaults.tone_hz == 3500 &&
+    check(defaults.limiter_enabled && defaults.feedback == .28f && defaults.mix == .39f && defaults.drive == .4f && defaults.tone_hz == 3500 &&
           defaults.mod_depth_ms == 6 && defaults.mod_rate_hz == 1 && defaults.sample_rate_hz == 8000 &&
           defaults.feedback_lowpass_hz == 12000 && defaults.feedback_highpass_hz == 80 && defaults.drift_amount == .25f && defaults.limiter_release_ms == 150 &&
           defaults.lores_rate_end_hz == 1200 && defaults.lores_rate_decay_ms == 1500 && defaults.lores_rate_envelope_amount == 1 && defaults.swell_ms == 250 && defaults.digital_rack_rate_hz == 16000 &&
@@ -395,13 +418,16 @@ void liveLooperRecordUsesConfiguredTime() {
         // Preparation starts at350ms. A live host changes Time before the first
         // Record callback without calling reset, just as the NT adapter does.
         Fixture f(8000,500);
-        auto p=neutralParameters();p.model=echolab::Model::LoopSampler;p.delay_ms=2;p.feedback=0;p.mix=.35f;
+        // Establish a fully wet path before the live Time change so this timing
+        // fixture does not depend on the factory Mix or its control smoothing.
+        auto p=neutralParameters();p.mix=1;f.engine.setParameters(p);f.engine.reset();
+        p.model=echolab::Model::LoopSampler;p.delay_ms=2;p.feedback=0;
         p.mod1_source=3;p.mod1_destination=1;p.mod1_amount=1;
         f.engine.setParameters(p);f.engine.setExternalModulation(cv,0,0);
         const unsigned period=cv == 0 ? 16 : 24;
         for (unsigned n=0;n<=period*3;++n) {
             float l,r;f.engine.processSample(n == 0 ? .2f : 0,0,l,r);
-            if (n) near(l,n%period == 0 ? .35f*.2f : 0,0,"live initial looper Record latches configured Time plus current CV rather than the old delay glide");
+            if (n) near(l,n%period == 0 ? .2f : 0,0,"live initial looper Record latches configured Time plus current CV rather than the old delay glide");
             near(r,0,0,"live looper duration change preserves the independent silent channel");
         }
     }
@@ -951,6 +977,8 @@ void ratesExtremesAndAllocations() {
             p.lores_rate_decay_ms=p.lores_rate_envelope_amount=std::numeric_limits<float>::quiet_NaN();
         f.engine.setParameters(p); f.engine.reset();
         check(std::isfinite(f.engine.parameters().delay_ms) && std::isfinite(f.engine.parameters().feedback),"nonfinite controls sanitized");
+        check(f.engine.parameters().feedback == .28f && f.engine.parameters().mix == .39f,
+              "nonfinite feedback and mix recover the current production defaults");
         check(f.engine.parameters().tone_hz <= 0.45f * fs,"nonfinite tone fallback respects the active sample-rate limit");
     }
     check(audioAllocations == 0,"no heap allocation in control/reset/sample/block/event audio paths");
@@ -983,7 +1011,7 @@ void operator delete(void* ptr,std::size_t) noexcept { std::free(ptr); }
 void operator delete[](void* ptr,std::size_t) noexcept { std::free(ptr); }
 
 int main() {
-    impulseAndInterpolation(); exact48kLongDelay(); pingPongTopology(); multiHeadTopology();
+    impulseAndInterpolation(); exact48kLongDelay(); stereoMusicalRatios(); pingPongTopology(); multiHeadTopology();
     lowResolutionQuantization();dynamicDuckingAndRecovery();automaticVolumeSwell();sharedMemoryCanariesAndModelChanges();
     fractionalSampleRateReduction();decliningLoResPhraseEnvelope();oneWaySweepDirections();sweepFilterSpectra();feedbackAboveUnityAndLimiter();exciterInFeedbackOnly();selectableHeadPattern();liveLooperRecordUsesConfiguredTime();externalModulationRouting();
     feedbackLowpassPlacementAndSlope();feedbackHighpassPlacementAndSlope();rackRateIsModelSpecific();selectedVoicingsAndLegacyFeedback();optionalModulationAndLoResRateRoute();colourCompensationAndSlowDrift();

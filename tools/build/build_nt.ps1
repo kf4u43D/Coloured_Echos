@@ -37,7 +37,7 @@ $undefined | Set-Content -LiteralPath (Join-Path $out 'undefined_symbols.txt') -
 $symbols = @($undefined | ForEach-Object { ($_ -split '\s+')[-1] })
 foreach ($symbol in $symbols) {
     # SDK api.h exports the three UI functions; official examples use memcpy.
-    if ($symbol -notmatch '^(_GLOBAL_OFFSET_TABLE_|NT_globals|memset|memcpy|expf|NT_algorithmIndex|NT_updateParameterPages|NT_drawText)$') { throw "Import runtime non audité : $symbol" }
+    if ($symbol -notmatch '^(_GLOBAL_OFFSET_TABLE_|NT_globals|memset|memcpy|expf|NT_algorithmIndex|NT_updateParameterPages|NT_drawText|NT_setParameterFromAudio|NT_parameterOffset)$') { throw "Import runtime non audité : $symbol" }
 }
 $defined = & arm-none-eabi-nm --defined-only $object
 if (($defined -join "`n") -notmatch 'pluginEntry') { throw 'pluginEntry absent.' }

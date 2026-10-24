@@ -25,8 +25,8 @@ constexpr int modelCount = 20;
 
 struct Parameters {
     float delay_ms = 350.0f;
-    float feedback = 0.45f;
-    float mix = 0.35f;
+    float feedback = 0.28f;
+    float mix = 0.39f;
     float tone_hz = 3500.0f;
     float drive = 0.4f;
     Model model = Model::Digital;
@@ -107,8 +107,8 @@ private:
     Parameters target_{};
     float delayTarget_ = 16800.0f;
     float delay_ = 16800.0f;
-    float feedback_ = 0.45f;
-    float mix_ = 0.35f;
+    float feedback_ = 0.28f;
+    float mix_ = 0.39f;
     float drive_ = 0.0f;
     float tonePole_ = 0.0f;
     float toneTarget_ = 0.0f;

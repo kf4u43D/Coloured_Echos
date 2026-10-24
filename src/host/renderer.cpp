@@ -76,7 +76,7 @@ void assign(Parameters& p, const std::string& key, const std::string& value) {
         p.voicing=static_cast<int>(selected);return;
     }
     if (key == "model") {
-        const std::string canonical = value == "8bit" ? "lores" : (value == "ducking" ? "dynamic" : value);
+        const std::string canonical = value == "lores" ? "8bit" : (value == "ducking" ? "dynamic" : value);
         for (int i=0; i<echolab::modelCount; ++i)
             if (canonical == echolab::modelName(static_cast<echolab::Model>(i))) {
                 p.model = static_cast<echolab::Model>(i); return;
@@ -188,15 +188,15 @@ bool samePath(const std::string& a, const std::string& b) {
 void help() {
     std::cout << "Coloured_Echos offline renderer (provisional project algorithms)\n"
         "Usage: coloured_echos_render --input excitation.wav --output render.wav [options]\n"
-        "  --model digital|analog|tube|pingpong|multihead|lores|dynamic|tape|sweep\n"
+        "  --model digital|analog|tube|pingpong|multihead|8bit|dynamic|tape|sweep\n"
         "          analogmod|digitalmod|reverse|autovolume|digitalrack|platter|stereo|looper|exciter|sweepup|tubea04\n"
-        "          aliases: 8bit=lores, ducking=dynamic; default digital\n"
+        "          aliases: lores=8bit, ducking=dynamic; default digital\n"
         "  --delay-ms N                  default 350, bounded by --max-delay-ms\n"
-        "  --feedback N                  0..2 (200 percent), default .45\n"
-        "  --mix N                       linear wet mix 0..1 (default 0.35)\n"
+        "  --feedback N                  0..2 (200 percent), default .28\n"
+        "  --mix N                       linear wet mix 0..1 (default 0.39)\n"
         "  --tone-hz N                   default 3500; effective maximum 0.45*Fs\n"
         "  --drive N                     0..1, default .4, colored models\n"
-        "  --bit-depth N                 4..24, default 8 (lores)\n"
+        "  --bit-depth N                 4..24, default 8 (8bit)\n"
         "  --mod-rate-hz N               .01..20, default 1 (A05/B06 Analog Mod x.72)\n"
         "  --mod-depth-ms N              0..50, default 6\n"
         "  --duck-threshold-db N          -80..0 dBFS, default -24\n"
@@ -208,7 +208,7 @@ void help() {
         "  --loop-action NAME            stop|record|play|overdub|clear; default record\n"
         "  --limiter 0|1                 musical gain stage; -1 dB hard ceiling always active\n"
         "  --limiter-ceiling N           .01..1, clamped to -1 dB; release default 150 ms\n"
-        "  --sample-rate-hz N            LoRes held sample rate, default 8000; 0=full Fs\n"
+        "  --sample-rate-hz N            8bit held sample rate, default 8000; 0=full Fs\n"
         "  --digital-rack-rate-hz N      Rack internal sample rate, default 16000; 0=full Fs\n"
         "  --exciter-amount N            0..1, default .1; tune default 4000 Hz\n"
         "  --voicing NAME                auto|a04|a05|b06; auto selects preferred version\n"

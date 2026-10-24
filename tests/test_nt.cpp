@@ -10,7 +10,37 @@
 extern "C" const _NT_globals NT_globals = {48000, 128, nullptr, 0, 0, 0};
 static unsigned pageNotifications=0;
 static const char* lastDrawText=nullptr;
-extern "C" int32_t NT_algorithmIndex(const _NT_algorithm*) { return 0; }
+static std::vector<_NT_algorithm*> hostAlgorithms;
+struct ParameterWrite { _NT_algorithm* algorithm;int parameter,value; };
+static std::vector<ParameterWrite> queuedWrites,parameterWrites;
+static bool deferParameterWrites=false;
+static unsigned hostParameterErrors=0;
+static constexpr uint32_t hostParameterOffset=7;
+extern "C" int32_t NT_algorithmIndex(const _NT_algorithm* algorithm) {
+    for(std::size_t i=0;i<hostAlgorithms.size();++i) if(hostAlgorithms[i]==algorithm) return static_cast<int32_t>(i);
+    return -1;
+}
+extern "C" uint32_t NT_parameterOffset() { return hostParameterOffset; }
+static void applyParameterWrite(const ParameterWrite& write) {
+    const_cast<int16_t*>(write.algorithm->v)[write.parameter]=static_cast<int16_t>(write.value);
+    echolab_nt::parameterChanged(write.algorithm,write.parameter);
+}
+extern "C" void NT_setParameterFromAudio(uint32_t algorithm,uint32_t parameter,int16_t value) {
+    if(algorithm>=hostAlgorithms.size() || !hostAlgorithms[algorithm] || !hostAlgorithms[algorithm]->v ||
+       parameter<hostParameterOffset || parameter-hostParameterOffset>=echolab_nt::ParameterCount) {
+        ++hostParameterErrors;return;
+    }
+    const ParameterWrite write{hostAlgorithms[algorithm],static_cast<int>(parameter-hostParameterOffset),value};
+    parameterWrites.push_back(write);
+    if(deferParameterWrites) queuedWrites.push_back(write);else applyParameterWrite(write);
+}
+static void flushParameterWrites() {
+    for(int pass=0;!queuedWrites.empty() && pass<16;++pass) {
+        const auto writes=queuedWrites;queuedWrites.clear();
+        for(const auto& write:writes) applyParameterWrite(write);
+    }
+    if(!queuedWrites.empty()) throw std::runtime_error("host setter callbacks did not settle");
+}
 extern "C" void NT_updateParameterPages(uint32_t) { ++pageNotifications; }
 extern "C" void NT_drawText(int,int,const char* text,int,_NT_textAlignment,_NT_textSize) { lastDrawText=text; }
 using namespace echolab_nt;
@@ -23,17 +53,20 @@ struct Instance {
     std::vector<uint8_t> sram, dram;
     std::vector<int16_t> values;
     _NT_algorithm* self;
-    explicit Instance(int32_t seconds = 1, bool limiterEnabled = false) {
+    explicit Instance(int32_t seconds = 1, bool limiterEnabled = false,int legacyVoice=0,int productVersion=0,bool reverseCallbacks=false) {
         calculateRequirements(req, &seconds);
         sram.resize(req.sram + 2, 0xad); dram.resize(req.dram + 2, 0xad);
         _NT_algorithmMemoryPtrs ptrs{sram.data()+1, dram.data()+1, nullptr, nullptr};
         self = construct(ptrs, req, &seconds);
+        hostAlgorithms.push_back(self);
         for (const auto& p : parameters) values.push_back(p.def);
         // Analytic fixtures disable musical gain reduction, keeping the guard.
         values[LimiterOn]=limiterEnabled ? 1 : 0;
+        values[Voicing]=static_cast<int16_t>(legacyVoice);values[Version]=static_cast<int16_t>(productVersion);
         self->v = values.data();
-        for (int i=0; i<ParameterCount; ++i) parameterChanged(self, i);
+        for (int i=0; i<ParameterCount; ++i) parameterChanged(self,reverseCallbacks ? ParameterCount-1-i : i);
     }
+    ~Instance() { const auto index=NT_algorithmIndex(self);if(index>=0) hostAlgorithms[static_cast<std::size_t>(index)]=nullptr; }
     void set(int p, int v) { values[p] = static_cast<int16_t>(v); parameterChanged(self, p); }
 };
 static void routing() {
@@ -77,8 +110,10 @@ static void routing() {
 static void sharedCoreAndInstances(int model) {
     Instance instance;
     instance.set(Model, model);
-    near(static_cast<Algorithm*>(instance.self)->engine.parameters().feedback, .45f,
-         "every factory model starts with 45 percent feedback");
+    near(static_cast<Algorithm*>(instance.self)->engine.parameters().feedback, .28f,
+         "every factory model starts with 28 percent feedback");
+    near(static_cast<Algorithm*>(instance.self)->engine.parameters().mix, .39f,
+         "every factory model starts with 39 percent mix");
     instance.set(OutputModeL, 1); instance.set(OutputModeR, 1);
     instance.set(Time, 10); instance.set(Mix, 800); instance.set(Feedback, 650);
     instance.set(Tone, 1800); instance.set(Drive, 350);
@@ -284,10 +319,19 @@ static bool pageHas(const _NT_algorithm* self,int parameter) {
 }
 static void dynamicPagesAndControls() {
     Instance i;
+    check(std::strcmp(i.self->parameterPages->pages[0].name,"Delay")==0 &&
+          i.self->parameterPages->pages[0].params[0]==Time,"Delay is the first page and starts with manual Time");
     check(!pageHas(i.self,BitDepth) && !pageHas(i.self,LoopAction),"Digital pages hide unrelated model controls");
     check(!pageHas(i.self,FeedbackLPHz) && !pageHas(i.self,FeedbackHPHz) && !pageHas(i.self,Drift),
           "Digital Auto A05 hides B06 regeneration filters it does not use");
-    check(pageHas(i.self,Voicing) && pageHas(i.self,ModulationEnabled),"voice and internal modulation switch are common controls");
+    check(!pageHas(i.self,Voicing) && pageHas(i.self,Version) && pageHas(i.self,ModulationEnabled),
+          "the product Version selector replaces the hidden legacy voicing control");
+    bool versionOnColor=false;
+    for(uint32_t page=0;page<i.self->parameterPages->numPages;++page) {
+        const auto& p=i.self->parameterPages->pages[page];
+        for(unsigned id=0;id<p.numParams;++id) if(p.params[id]==Version) versionOnColor=std::strcmp(p.name,"Color")==0;
+    }
+    check(versionOnColor && std::strcmp(parameters[Version].name,"Version")==0,"Version is located on the Color page");
     check(!pageHas(i.self,LoResEndHz) && !pageHas(i.self,LoResDecayMs),"rate envelope is absent from Digital pages");
     const auto before=pageNotifications;
     i.set(Model,5);
@@ -307,7 +351,8 @@ static void dynamicPagesAndControls() {
         i.set(Model,model);
         const int resolved=model==19 ? 1 : (model==2 ? 3 : (voice ? voice : automaticVoices[model]));
         check(echolab::resolvedVoicing(static_cast<echolab::Model>(model),voice)==resolved,"published automatic voice selection and fixed Tube A04");
-        check(pageHas(i.self,Voicing)==(model!=2 && model!=19),"both fixed Tube models hide the voicing override");
+        check(!pageHas(i.self,Voicing) && pageHas(i.self,Version)==hasVersion(model),
+              "legacy voicing stays hidden and Version appears where A/B have distinct native sounds");
         check(pageHas(i.self,FeedbackLPHz)==(resolved==3 || (resolved==2 && model!=0)) &&
               pageHas(i.self,FeedbackHPHz)==(resolved==3) && pageHas(i.self,Drift)==(resolved!=1 && model!=0),
               "feedback colour pages follow the actual model scope");
@@ -435,6 +480,164 @@ static void clockAndCvAliasing() {
     midiRealtime(i.self,0xfc);step(i.self,last.data(),1);near(state->controls.delay_ms,350,0,"MIDI Stop falls back to manual Time");
     midiMessage(i.self,0xb7,1,127);near(state->wheel,1,0,"CC1 modulation wheel accepts every MIDI channel");
     midiMessage(i.self,0xb1,2,0);near(state->wheel,1,0,"other CCs leave the wheel unchanged");
+}
+static void timingPageFollowsClock() {
+    Instance i(3);
+    auto* state=static_cast<Algorithm*>(i.self);
+    const auto firstTimingParameter=[&]() { return i.self->parameterPages->pages[0].params[0]; };
+    i.set(Time,731);
+    check(firstTimingParameter()==Time && parameters[Time].unit==kNT_unitMs,
+          "Free mode exposes the editable millisecond Time on the first page");
+    const auto beforeInternal=pageNotifications;
+    i.set(SyncMode,3);
+    check(firstTimingParameter()==Division && parameters[Division].unit==kNT_unitEnum &&
+          parameters[Division].enumStrings==divisionNames && pageNotifications==beforeInternal+1,
+          "Internal BPM replaces manual Time with the real editable musical Division");
+    near(state->controls.delay_ms,500,1e-5f,"internal tempo initially uses quarter notes");
+    i.set(Division,6);
+    near(state->controls.delay_ms,375,1e-5f,"editing the first-page division changes the synchronized delay");
+    check(i.values[Time]==731,"musical editing preserves the saved manual Time");
+    i.set(TempoBpm,60);
+    near(state->controls.delay_ms,750,1e-5f,"tempo edits retain the chosen musical division");
+    i.set(SyncMode,1);
+    check(firstTimingParameter()==Time,"an external clock that has not locked exposes its actual manual fallback");
+    near(state->controls.delay_ms,731,0,"MIDI wait uses the saved manual delay");
+    std::vector<float> buses(kNT_lastBus*4,0.0f);
+    midiRealtime(i.self,0xfa);midiRealtime(i.self,0xf8);
+    for(int block=0;block<250;++block) step(i.self,buses.data(),1);
+    const auto beforeLock=pageNotifications;
+    midiRealtime(i.self,0xf8);step(i.self,buses.data(),1);
+    check(state->clock.locked() && firstTimingParameter()==Division && pageNotifications==beforeLock+1,
+          "external lock refreshes the first page once and exposes musical editing");
+    near(state->controls.delay_ms,375,1e-5f,"locked MIDI uses the same selected dotted division");
+    i.set(Division,3);
+    near(state->controls.delay_ms,250,1e-5f,"the synchronized first-page edit reaches the clock calculation");
+    const auto whileLocked=pageNotifications;
+    for(int block=0;block<100;++block) step(i.self,buses.data(),1);
+    check(pageNotifications==whileLocked,"stable clock rendering does not repeatedly rebuild pages");
+    for(int block=0;block<24001;++block) step(i.self,buses.data(),1);
+    check(!state->clock.locked() && firstTimingParameter()==Time && pageNotifications==whileLocked+1,
+          "clock timeout restores the editable manual Time and refreshes pages once");
+    near(state->controls.delay_ms,731,0,"timeout restores the saved milliseconds rather than the last synchronized delay");
+    midiRealtime(i.self,0xf8);
+    for(int block=0;block<250;++block) step(i.self,buses.data(),1);
+    midiRealtime(i.self,0xf8);step(i.self,buses.data(),1);
+    check(firstTimingParameter()==Division,"a returning MIDI clock restores musical editing");
+    midiRealtime(i.self,0xfc);step(i.self,buses.data(),1);
+    check(firstTimingParameter()==Time,"MIDI Stop exposes manual fallback on the first page");
+    i.set(SyncMode,2);i.set(ClockBus,3);i.set(ClockPpqn,0);
+    buses[8]=5;step(i.self,buses.data(),1);buses[8]=0;
+    for(int block=0;block<5999;++block) step(i.self,buses.data(),1);
+    buses[8]=5;step(i.self,buses.data(),1);
+    check(state->clock.locked() && firstTimingParameter()==Division,"CV clock lock also exposes first-page musical editing");
+    i.set(ClockBus,4);
+    check(!state->clock.locked() && firstTimingParameter()==Time,"changing the clock bus immediately restores manual fallback");
+}
+static void versionMigrationAndSelection() {
+    for(bool reverseCallbacks : {false,true}) for(bool deferred : {false,true}) for(int saved=0;saved<=3;++saved) {
+        deferParameterWrites=deferred;parameterWrites.clear();queuedWrites.clear();
+        Instance i(1,false,saved,0,reverseCallbacks);
+        auto* state=static_cast<Algorithm*>(i.self);
+        const int expected=saved ? saved : 2; // Digital's native A sound is A05.
+        check(echolab::resolvedVoicing(state->controls.model,state->controls.voicing)==expected,
+              "old explicit and native voices survive either initialization callback order");
+        std::vector<float> buses(kNT_lastBus*4,0.0f);step(i.self,buses.data(),1);
+        check(i.values[Voicing]==saved,"first render does not rewrite an old saved voicing");
+        check(echolab::resolvedVoicing(state->controls.model,state->controls.voicing)==expected,
+              "first render preserves the old sound before any product Version edit");
+        char text[kNT_parameterStringSize]{};
+        check(parameterString(i.self,Version,i.values[Version],text)==1 && text[0]==(saved==3 ? 'B' : 'A'),
+              "visible Version contains only the effective A or B during migration");
+        flushParameterWrites();
+        check(i.values[Version]==(saved==3 ? 1 : 0) && i.values[Voicing]==saved,
+              "old B normalizes the appended selector through the host without discarding legacy51");
+        if(i.values[Version]==1) { i.set(Version,0);flushParameterWrites(); }
+        i.set(Version,1);
+        check(state->controls.voicing==3,"explicit B changes sound immediately even with deferred host setters");
+        flushParameterWrites();check(i.values[Voicing]==3,"explicit B is persisted in the compatible hidden field");
+        i.set(Version,0);
+        check(state->controls.voicing==0 && echolab::resolvedVoicing(state->controls.model,state->controls.voicing)==2,
+              "explicit A restores the current per-model native A05 rather than forcing A04");
+        flushParameterWrites();check(i.values[Voicing]==0,"explicit native A survives saving and reopening");
+        for(const auto& write:parameterWrites) check(write.parameter==Version || write.parameter==Voicing,
+              "migration writes only its two published fields through offset-aware setters");
+    }
+    deferParameterWrites=false;queuedWrites.clear();
+    {
+        deferParameterWrites=true;
+        Instance late(1,false,3,0,true);
+        auto* state=static_cast<Algorithm*>(late.self);
+        std::vector<float> buses(kNT_lastBus*4,0.0f);step(late.self,buses.data(),1);
+        late.set(Version,0);
+        check(state->controls.voicing==0,"a user can select A before an old B normalization acknowledgement arrives");
+        flushParameterWrites();
+        check(late.values[Version]==0 && late.values[Voicing]==0 && state->controls.voicing==0,
+              "late normalization cannot overwrite a newer explicit A selection");
+        late.set(Version,1);late.set(Version,0);flushParameterWrites();
+        check(state->controls.voicing==0 && late.values[Voicing]==0,"deferred B/A writes settle to the latest explicit sound");
+        deferParameterWrites=false;
+    }
+    for(bool reverseCallbacks : {false,true}) {
+        Instance savedB(1,false,1,1,reverseCallbacks);
+        check(static_cast<Algorithm*>(savedB.self)->controls.voicing==3,
+              "a new preset's explicit B takes precedence regardless of legacy callback order");
+    }
+    Instance native;
+    native.set(Model,5);std::vector<float> buses(kNT_lastBus*4,0.0f);step(native.self,buses.data(),1);
+    check(native.values[Version]==0 && !pageHas(native.self,Version),"native B-only models keep the model-selection default without a redundant selector");
+    native.set(Model,1);
+    check(echolab::resolvedVoicing(echolab::Model::Analog,static_cast<Algorithm*>(native.self)->controls.voicing)==1,
+          "switching from native B-only models preserves Analog's native A sound");
+}
+static void synchronizedStereoNotes() {
+    Instance i(3);i.set(Model,15);i.set(SyncMode,3);i.set(TempoBpm,120);i.set(Division,2);
+    auto* state=static_cast<Algorithm*>(i.self);
+    check(pageHas(i.self,RightDivision) && pageHas(i.self,StereoRatio),"synced Stereo initially preserves Ratio mode");
+    i.set(RightDivision,8);
+    near(state->controls.delay_ms,500,1e-5f,"left Stereo note follows the common quarter division");
+    near(state->controls.stereo_ratio,2.0f/3.0f,1e-6f,"right quarter triplet uses its exact musical ratio");
+    check(!pageHas(i.self,StereoRatio),"a selected right note hides the inactive numeric ratio");
+    i.set(Division,0);i.set(RightDivision,10);
+    near(state->controls.stereo_ratio,1.0f/24.0f,1e-6f,"whole-left and sixteenth-triplet-right support the smallest note ratio");
+    i.set(Division,9);i.set(RightDivision,1);
+    near(state->controls.stereo_ratio,24,1e-5f,"sixteenth-triplet-left and whole-right support the largest note ratio");
+    near(state->engine.parameters().stereo_ratio,24,1e-5f,"the shared core accepts the full musical ratio range");
+    i.set(StereoRatio,175);i.set(SyncMode,1);
+    check(!pageHas(i.self,RightDivision) && pageHas(i.self,StereoRatio),"waiting for a clock exposes the actual manual stereo ratio");
+    near(state->controls.stereo_ratio,1.75f,0,"external wait uses the saved ratio without erasing the selected right note");
+    check(i.values[RightDivision]==1,"manual fallback retains the remembered right note");
+    i.set(SyncMode,3);check(!pageHas(i.self,StereoRatio),"returning to synchronization restores remembered right-note editing");
+    Instance capped(1);capped.set(Model,15);capped.set(SyncMode,3);capped.set(TempoBpm,30);
+    capped.set(Division,0);capped.set(RightDivision,10);
+    auto* limited=static_cast<Algorithm*>(capped.self);
+    near(limited->controls.delay_ms,1000,0,"left note clamps to available delay memory");
+    near(limited->controls.stereo_ratio,1.0f/3.0f,1e-6f,"right note is calculated against the clamped left duration");
+    capped.set(TempoBpm,60);
+    near(limited->controls.delay_ms,1000,0,"tempo change leaves an already clamped left duration unchanged");
+    near(limited->controls.stereo_ratio,1.0f/6.0f,1e-6f,"right note still updates when only its duration changes");
+    capped.set(RightDivision,1);near(limited->controls.stereo_ratio,1,0,"both long notes clamp independently to memory capacity");
+    capped.set(ClockBus,3);capped.set(ClockPpqn,0);capped.set(SyncMode,2);capped.set(Division,2);capped.set(RightDivision,8);
+    std::vector<float> buses(kNT_lastBus*4,0.0f);buses[8]=5;step(capped.self,buses.data(),1);buses[8]=0;
+    for(int block=0;block<11999;++block) step(capped.self,buses.data(),1);
+    buses[8]=5;step(capped.self,buses.data(),1);buses[8]=0;
+    near(limited->controls.delay_ms,1000,1e-4f,"CV locks the stereo fixture to a one-second quarter");
+    near(limited->controls.stereo_ratio,2.0f/3.0f,1e-6f,"external CV drives the independent right triplet");
+    capped.set(Division,0);capped.set(RightDivision,10);
+    near(limited->controls.stereo_ratio,1.0f/6.0f,1e-6f,"clamped whole-note left retains an independent right sixteenth triplet");
+    for(int block=0;block<5999;++block) step(capped.self,buses.data(),1);
+    buses[8]=5;step(capped.self,buses.data(),1);buses[8]=0;
+    near(limited->controls.delay_ms,1000,0,"faster external tempo can leave the left note clamped unchanged");
+    near(limited->controls.stereo_ratio,1.0f/12.0f,1e-6f,"a clock revision still updates the right note when left delay is unchanged");
+    capped.set(Division,2);capped.set(RightDivision,8);
+    capped.set(SyncMode,3);capped.set(TempoBpm,120);
+    near(limited->controls.delay_ms,500,1e-4f,"Internal BPM ignores stale external CV tempo");
+    near(limited->controls.stereo_ratio,2.0f/3.0f,1e-6f,"right note follows the same internal quarter after external sync");
+    capped.set(SyncMode,2);buses[8]=5;step(capped.self,buses.data(),1);buses[8]=0;
+    for(int block=0;block<5999;++block) step(capped.self,buses.data(),1);
+    buses[8]=5;step(capped.self,buses.data(),1);buses[8]=0;
+    for(int block=0;block<24001;++block) step(capped.self,buses.data(),1);
+    check(!limited->clock.locked() && !pageHas(capped.self,RightDivision),"CV timeout restores manual Stereo controls");
+    near(limited->controls.stereo_ratio,1.5f,0,"timeout restores saved manual stereo ratio");
 }
 static void modulationCvAliasing() {
     Instance separate,aliased;
@@ -613,6 +816,41 @@ static void firstPresetLoopLength() {
         check(firstWet==expected,"first NT Loop Record latches preset Time plus CV without capturing the previous delay glide");
     }
 }
+static void musicalTapPagesAndCapacity() {
+    Instance instance;
+    instance.set(Model,4);
+    const auto headsHas=[&](int parameter) {
+        for(uint32_t page=0;page<instance.self->parameterPages->numPages;++page) {
+            const auto& definition=instance.self->parameterPages->pages[page];
+            if(std::strcmp(definition.name,"Heads")!=0) continue;
+            for(unsigned i=0;i<definition.numParams;++i) if(definition.params[i]==parameter) return true;
+        }
+        return false;
+    };
+    char text[kNT_parameterStringSize];
+    auto label=[&](int pattern,const char* expected) {
+        const int length=parameterString(instance.self,TapPattern,pattern,text);
+        check(std::strcmp(text,expected)==0 && length==static_cast<int>(std::strlen(text)),
+              "tap labels describe the actual positions in the selected span");
+    };
+    check(headsHas(TapPattern) && !headsHas(Division),"free Heads exposes patterns relative to manual Time");
+    label(0,"Triplet: 1/3 2/3 1 span");
+    instance.set(SyncMode,3);instance.set(Division,2);
+    check(headsHas(TapPattern) && headsHas(Division),"synced Heads exposes its span as an editable musical division");
+    label(0,"Triplet: 1/8T 1/4T 1/4");
+    label(1,"Four: 1/16 1/8 1/8D 1/4");
+    instance.set(Division,5);label(0,"Triplet: 1/8 1/4 1/4D");
+    instance.set(Division,0);
+    label(0,"Triplet: 1/3 2/3 1 span (max)");
+    draw(instance.self);
+    check(lastDrawText && std::strstr(lastDrawText,"max delay"),"a clipped musical span reports its memory limit instead of claiming exact note timing");
+    instance.set(Model,15);instance.set(Division,4);instance.set(RightDivision,1);
+    draw(instance.self);
+    check(lastDrawText && std::strstr(lastDrawText,"max delay"),"right-only stereo note clipping is visible even when the left note fits");
+    instance.set(RightDivision,4);
+    draw(instance.self);
+    check(lastDrawText && !std::strstr(lastDrawText,"max delay"),"capacity warning clears when both note durations fit");
+}
 int main() {
     try {
         check(pluginEntry(kNT_selector_version,0)==13,"firmware 1.18 API 13 compatibility");
@@ -621,23 +859,26 @@ int main() {
         const auto* f = reinterpret_cast<const _NT_factory*>(pluginEntry(kNT_selector_factoryInfo,0));
         check(f && f->guid == NT_MULTICHAR('E','L','n','t'),"stable GUID");
         check(std::strcmp(f->name,"Coloured_Echos")==0,"exact displayed project name");
-        static_assert(Model==6 && Time==7 && Bypass==12 && BitDepth==13 && LoopAction==22 && LimiterOn==23 && Division==42 && FeedbackLPHz==43 && Drift==44 && FeedbackHPHz==45 && LoResEndHz==46 && LoResDecayMs==47 && LoResEnvelopeAmount==48 && RackSampleRateHz==49 && LoResCutoffHz==50 && Voicing==51 && ModulationEnabled==52 && ParameterCount==53,"published parameter IDs remain stable; controls appended");
+        static_assert(Model==6 && Time==7 && Bypass==12 && BitDepth==13 && LoopAction==22 && LimiterOn==23 && Division==42 && FeedbackLPHz==43 && Drift==44 && FeedbackHPHz==45 && LoResEndHz==46 && LoResDecayMs==47 && LoResEnvelopeAmount==48 && RackSampleRateHz==49 && LoResCutoffHz==50 && Voicing==51 && ModulationEnabled==52 && Version==53 && RightDivision==54 && ParameterCount==55,"published parameter IDs remain stable; controls appended");
         check(parameters[Model].max==19 && parameters[Model].def==0 && ARRAY_SIZE(modelNames)==20,
               "20 selectors without changing existing model IDs");
-        check(parameters[Feedback].def==450 && echolab::Parameters{}.feedback==.45f && parameters[ModRate].def==100 && parameters[ModDepth].def==600 && parameters[ExciterAmount].def==100 &&
+        check(parameters[Feedback].def==280 && echolab::Parameters{}.feedback==.28f &&
+              parameters[Mix].def==390 && echolab::Parameters{}.mix==.39f && parameters[ModRate].def==100 && parameters[ModDepth].def==600 && parameters[ExciterAmount].def==100 &&
               parameters[ExciterTuneHz].def==4000 && parameters[Swell].def==250 && parameters[LimiterReleaseMs].def==150 &&
               parameters[LimiterCeiling].max==891 && parameters[LimiterCeiling].def==891 &&
               parameters[FeedbackLPHz].def==12000 && parameters[Drift].def==250 && parameters[FeedbackHPHz].def==80 &&
               parameters[LoResEndHz].def==1200 && parameters[LoResDecayMs].def==1500 && parameters[LoResEnvelopeAmount].def==1000 && parameters[RackSampleRateHz].def==16000 &&
-              parameters[LoResCutoffHz].def==2000 && parameters[Voicing].def==0 && parameters[ModulationEnabled].def==1,
+              parameters[LoResCutoffHz].def==2000 && parameters[Voicing].def==0 && parameters[ModulationEnabled].def==1 &&
+              parameters[Version].min==0 && parameters[Version].max==1 && parameters[Version].def==0 && parameters[RightDivision].def==0,
               "published musical defaults, Lo Res envelope and -1dB NT maximum");
         check(std::strcmp(modelNames[8],"Sweep Down (provisional)")==0 && std::strcmp(modelNames[18],"Sweep Up (provisional)")==0,
               "Sweep Down keeps ID8 and Sweep Up appends ID18");
-        check(std::strcmp(modelNames[19],"Tube A04 (provisional)")==0 && parameters[Mod1Destination].max==8 && parameters[Mod2Destination].max==8 &&
-              std::strcmp(destinationNames[8],"Fe Lo Res")==0,"Tube A04 and Fe destination are appended without changing earlier selectors");
+        check(std::strcmp(modelNames[19],"Tube A (provisional)")==0 && parameters[Mod1Destination].max==8 && parameters[Mod2Destination].max==8 &&
+              std::strcmp(destinationNames[8],"8bit rate")==0 && std::strcmp(modelNames[5],"8bit (provisional)")==0,
+              "product labels use A/B and 8bit without changing published selectors");
         check(std::strcmp(modelNames[0],"Digital control")==0 &&
               std::strcmp(modelNames[1],"Analog (provisional)")==0 &&
-              std::strcmp(modelNames[2],"Tube B06 (provisional)")==0 &&
+              std::strcmp(modelNames[2],"Tube B (provisional)")==0 &&
               std::strcmp(modelNames[3],"Ping Pong (provisional)")==0 &&
               std::strcmp(modelNames[4],"Multi-Head (provisional)")==0,"stable and explicit model labels");
         int32_t a=1,b=8;
@@ -647,8 +888,9 @@ int main() {
         routing();
         for(int model=0;model<echolab::modelCount;++model) sharedCoreAndInstances(model);
         statefulModelAliases(); analyticalNewModelRouting(); bypassAndNonfinite(); appendedControls();
-        dynamicPagesAndControls();finalBusLimiter();singleMusicalStage();clockAndCvAliasing();modulationCvAliasing();depthCvAndWheelRouting();
+        dynamicPagesAndControls();musicalTapPagesAndCapacity();finalBusLimiter();singleMusicalStage();clockAndCvAliasing();timingPageFollowsClock();versionMigrationAndSelection();synchronizedStereoNotes();modulationCvAliasing();depthCvAndWheelRouting();
         digitalRackInternalRate();loresFeMappings();firstPresetLoopLength();
+        check(hostParameterErrors==0,"host parameter writes use valid algorithms, ranges and the required parameter offset");
         std::cout << "NT adapter: complete catalog, appended controls, analytical ping-pong/multi-head, stateful bus aliases, modes, None, bounds, instance isolation, core parity passed\n";
         return 0;
     } catch(const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

@@ -1,7 +1,7 @@
 # Coloured_Echos preset: sweepup
 delay_ms=250
-feedback=0.45
-mix=0.8
+feedback=0.28
+mix=0.39
 tone_hz=10000
 drive=0.3
 mod_rate_hz=0.5

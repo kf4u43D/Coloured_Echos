@@ -1,7 +1,7 @@
-# Coloured_Echos preset: lores
+# Coloured_Echos preset: 8bit
 delay_ms=250
-feedback=0.45
-mix=0.5
+feedback=0.28
+mix=0.39
 tone_hz=3500
 drive=0.4
 mod_rate_hz=0.25
@@ -13,7 +13,7 @@ feedback_lowpass_hz=12000
 feedback_highpass_hz=80
 drift_amount=0.25
 modulation_enabled=1
-model=lores
+model=8bit
 voicing=b06
 sample_rate_hz=8000
 lores_rate_end_hz=1200

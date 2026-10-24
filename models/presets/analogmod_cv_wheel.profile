@@ -1,7 +1,7 @@
 # Coloured_Echos preset: analogmod_cv_wheel
 delay_ms=250
-feedback=0.45
-mix=0.5
+feedback=0.28
+mix=0.39
 tone_hz=3500
 drive=0.4
 mod_rate_hz=0.25

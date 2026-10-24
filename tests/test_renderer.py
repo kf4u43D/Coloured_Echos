@@ -72,6 +72,25 @@ class RendererContract(unittest.TestCase):
         self.assertIn("--events", result.stdout)
         self.assertIn("pingpong", result.stdout)
         self.assertIn("multihead", result.stdout)
+        self.assertIn("multihead|8bit|dynamic", result.stdout)
+        self.assertIn("default .28", result.stdout)
+        self.assertIn("default 0.39", result.stdout)
+
+    def test_factory_feedback_and_mix_defaults(self):
+        write_wave(self.input, [.5] + [0] * 15)
+        models=("digital","analog","tube","pingpong","multihead","8bit","dynamic","tape","sweep",
+                "analogmod","digitalmod","reverse","autovolume","digitalrack","platter","stereo","looper","exciter","sweepup","tubea04")
+        for model in models:
+            with self.subTest(model=model):
+                self.run_renderer("--model",model,"--delay-ms",1,"--tail",.004,neutral=False)
+                metadata=json.loads(Path(str(self.output)+".json").read_text())
+                self.assertAlmostEqual(metadata["parameters"]["feedback"],.28)
+                self.assertAlmostEqual(metadata["parameters"]["mix"],.39)
+        self.run_renderer("--model","digital","--delay-ms",1,"--tail",.004)
+        output=read_float(self.output)
+        for frame,gain in ((0,.5*(1-.39)),(8,.5*.39),(16,.5*.39*.28)):
+            self.assertAlmostEqual(output[2*frame],gain,places=6)
+            self.assertAlmostEqual(output[2*frame+1],gain,places=6)
 
     def test_pcm_formats_mono_duplication_and_no_normalization(self):
         for bits in (16, 24, 32):
@@ -227,7 +246,7 @@ class RendererContract(unittest.TestCase):
 
     def test_complete_catalog_controls_and_aliases(self):
         write_wave(self.input, [0.25,-0.125]*64, channels=2)
-        models=("digital","analog","tube","pingpong","multihead","lores","dynamic","tape","sweep",
+        models=("digital","analog","tube","pingpong","multihead","8bit","dynamic","tape","sweep",
                 "analogmod","digitalmod","reverse","autovolume","digitalrack","platter","stereo","looper","exciter","sweepup","tubea04")
         controls={"bit_depth":8,"mod_rate_hz":1.25,"mod_depth_ms":3,"duck_threshold_db":-30,
                   "duck_amount":.75,"attack_ms":2,"release_ms":100,"swell_ms":150,"stereo_ratio":1.75,"loop_action":1,
@@ -246,10 +265,13 @@ class RendererContract(unittest.TestCase):
                 self.assertEqual(metadata["parameters"]["model"],model)
                 self.assertEqual(set(metadata["controls"]),set(controls))
                 for key,value in controls.items(): self.assertAlmostEqual(metadata["controls"][key],value,places=6)
-        for alias,canonical in (("8bit","lores"),("ducking","dynamic")):
+        for alias,canonical in (("lores","8bit"),("ducking","dynamic")):
             self.run_renderer("--model",alias,"--tail",0)
             metadata=json.loads(Path(str(self.output)+".json").read_text())
             self.assertEqual(metadata["parameters"]["model"],canonical)
+            aliased_audio=self.output.read_bytes()
+            self.run_renderer("--model",canonical,"--tail",0)
+            self.assertEqual(self.output.read_bytes(),aliased_audio)
 
     def test_extended_control_events_and_looper_block_invariance(self):
         write_wave(self.input,[.25,-.125,.1,-.2]*256,channels=2)

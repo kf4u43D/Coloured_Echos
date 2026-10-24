@@ -68,9 +68,19 @@ void ratesDivisionsAndBlocks() {
     clock.configure(std::numeric_limits<float>::infinity(),99,99,std::numeric_limits<float>::quiet_NaN(),99);
     check(std::isfinite(clock.delayMs(350)),"invalid clock settings are bounded");
 }
+void internalTempoAfterExternalClock() {
+    ClockSync clock;clock.configure(48000,2,1,120,2);
+    clock.cvSample(5);clock.cvSample(0);advance(clock,48000);clock.cvSample(5);
+    near(clock.lastQuarterMs(),1000,1e-4f,"CV fixture locks to a one-second quarter note");
+    clock.configure(48000,3,1,120,2);
+    near(clock.lastQuarterMs(),500,1e-4f,"Internal BPM quarter ignores the previous CV tempo");
+    near(clock.delayMs(731),500,1e-4f,"internal delay and reported quarter agree after CV");
+    clock.configure(48000,0,1,90,2);
+    near(clock.lastQuarterMs(),60000.0f/90,1e-4f,"Free mode reports its configured internal tempo rather than stale CV");
+}
 } // namespace
 int main() {
-    try { midiTransportAndTimeout();cvSchmittAndJitter();ratesDivisionsAndBlocks();
+    try { midiTransportAndTimeout();cvSchmittAndJitter();ratesDivisionsAndBlocks();internalTempoAfterExternalClock();
         std::cout << "Clock synthetic fixtures: MIDI transport/24PPQN, CV Schmitt/jitter, timeout, Fs/divisions/block invariance passed\n";
         return 0;
     } catch(const std::exception& e) { std::cerr << e.what() << '\n';return 1; }

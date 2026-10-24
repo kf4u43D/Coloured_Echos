@@ -117,6 +117,11 @@ if(BUILD_TESTING)
     echolab_warnings(echolab_clock_tests)
     add_test(NAME clock_sync COMMAND echolab_clock_tests)
 
+    add_executable(echolab_rhythm_labels_tests tests/test_rhythm_labels.cpp)
+    target_include_directories(echolab_rhythm_labels_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    echolab_warnings(echolab_rhythm_labels_tests)
+    add_test(NAME rhythm_labels COMMAND echolab_rhythm_labels_tests)
+
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_nt.cpp")
         add_executable(echolab_nt_tests tests/test_nt.cpp)
         # The official SDK's audio-parameter macros use designated initializers.

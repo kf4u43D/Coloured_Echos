@@ -10,4 +10,4 @@ Extract the archive and copy `coloured_echos.o` to `/programs/plug-ins/` on the 
 
 Back up existing presets and plug-in files before replacing them. Keep a single copy of the plug-in in the plug-ins folder.
 
-The archive includes [installation instructions](docs/INSTALL_NT.md), renderer profiles and file checksums. All supplied profiles use 45% Feedback.
+The archive includes [installation instructions](docs/INSTALL_NT.md), renderer profiles and file checksums. All supplied profiles use 28% Feedback and 39% Mix.
