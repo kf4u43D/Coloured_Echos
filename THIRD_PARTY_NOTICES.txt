@@ -1,0 +1,5 @@
+The disting NT API is provided under the MIT license.
+Its copyright and license notice are included as SDK_LICENSE.txt in the binary package.
+The SDK source and pinned commit are listed in third_party/dependencies.lock.json.
+
+No public license has been selected for the project code.

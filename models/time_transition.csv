@@ -1,0 +1,4 @@
+sample,param,value
+24000,delay_ms,120
+48000,delay_ms,375
+72000,feedback,0.25

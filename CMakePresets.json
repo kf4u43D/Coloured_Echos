@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "configurePresets": [{"name": "windows", "generator": "Visual Studio 17 2022", "architecture": "x64", "binaryDir": "${sourceDir}/build/host"}],
+  "buildPresets": [{"name": "windows", "configurePreset": "windows", "configuration": "Release"}],
+  "testPresets": [{"name": "windows", "configurePreset": "windows", "configuration": "Release", "output": {"outputOnFailure": true}}]
+}

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/expertsleepersltd/distingNT_API",
+  "tag": "v1.18.0",
+  "commit": "f440d20c2a96a9ca43892c7418a1d8185ad47eb5",
+  "api": 13,
+  "target_firmware": "1.18.0",
+  "acquisition": "Pinned official SDK tag; canonical SHA-256 checks cover required headers, README and license.",
+  "text_hash_policy": "UTF8, CRLF normalized to LF",
+  "files": [
+    {
+      "path": "include/distingnt/api.h",
+      "canonical_text_sha256": "2fb0a626ee495cd69d7c2c68aa3ec1206ca7f853e7967aad8f709fc4613e4206"
+    },
+    {
+      "path": "include/distingnt/microtuning.h",
+      "canonical_text_sha256": "e1716b6af823ac65e4b264f4d7d5e39d17fe0b3836b49935fb1eef1e2f5c306b"
+    },
+    {
+      "path": "include/distingnt/serialisation.h",
+      "canonical_text_sha256": "f60c0a471522dd191f594c550b43a9d5073a2361e30f88790b5b0a2e1e8c2e57"
+    },
+    {
+      "path": "include/distingnt/slot.h",
+      "canonical_text_sha256": "9ce83d1b00aa8ba71d8c660c506cd0580a70182e460a48d5eb41eb102b17dd4e"
+    },
+    {
+      "path": "include/distingnt/wav.h",
+      "canonical_text_sha256": "6c57409615e23dd15d5d4f0f7f96989ae11a36cc35986c5fcdc5d50370b46839"
+    },
+    {
+      "path": "LICENSE",
+      "canonical_text_sha256": "8eb366a510fa25b74b08223feddd30f2eb35dea6758cd8abe3c4666b79ae4822"
+    },
+    {
+      "path": "README.md",
+      "canonical_text_sha256": "29ba83159661659983e631ff85067450b3989a1e1a9d14ee8065b6dc2f5fa6a0"
+    }
+  ]
+}

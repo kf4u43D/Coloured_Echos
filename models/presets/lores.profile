@@ -1,0 +1,22 @@
+# Coloured_Echos preset: lores
+delay_ms=250
+feedback=0.45
+mix=0.5
+tone_hz=3500
+drive=0.4
+mod_rate_hz=0.25
+mod_depth_ms=2
+limiter_enabled=1
+limiter_ceiling=0.891250938
+limiter_release_ms=150
+feedback_lowpass_hz=12000
+feedback_highpass_hz=80
+drift_amount=0.25
+modulation_enabled=1
+model=lores
+voicing=b06
+sample_rate_hz=8000
+lores_rate_end_hz=1200
+lores_rate_decay_ms=1500
+lores_rate_envelope_amount=1
+lores_cutoff_hz=2000

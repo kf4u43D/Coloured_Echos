@@ -1,0 +1,23 @@
+# Coloured_Echos preset: analogmod_cv_wheel
+delay_ms=250
+feedback=0.45
+mix=0.5
+tone_hz=3500
+drive=0.4
+mod_rate_hz=0.25
+mod_depth_ms=0.6
+limiter_enabled=1
+limiter_ceiling=0.891250938
+limiter_release_ms=150
+feedback_lowpass_hz=12000
+feedback_highpass_hz=80
+drift_amount=0.25
+modulation_enabled=1
+model=analogmod
+voicing=a05
+mod1_source=cv1
+mod1_destination=time
+mod1_amount=0.075
+mod2_source=wheel
+mod2_destination=drive
+mod2_amount=0.6

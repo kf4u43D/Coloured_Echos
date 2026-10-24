@@ -1,0 +1,114 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Echo: diagnostic",
+      "type": "process",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-File",
+        "${workspaceFolder}/tools/build/diagnose.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Echo: configure host",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "windows"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Echo: build host",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "windows"
+      ],
+      "dependsOn": "Echo: configure host",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Echo: test host",
+      "type": "process",
+      "command": "ctest",
+      "args": [
+        "--preset",
+        "windows"
+      ],
+      "dependsOn": "Echo: build host",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Echo: synthetic tools tests",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_tools.py",
+        "-v"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Echo: verify new models",
+      "type": "process",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}/tools/analysis/verify_new_models.py"
+      ],
+      "dependsOn": "Echo: build host",
+      "problemMatcher": []
+    },
+    {
+      "label": "Echo: render synthetic demo",
+      "type": "process",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-File",
+        "${workspaceFolder}/tools/build/make_demo.ps1"
+      ],
+      "dependsOn": "Echo: build host",
+      "problemMatcher": []
+    },
+    {
+      "label": "Echo: build NT object",
+      "type": "process",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-File",
+        "${workspaceFolder}/tools/build/build_nt.ps1"
+      ],
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Echo: package NT",
+      "type": "process",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-File",
+        "${workspaceFolder}/tools/build/package.ps1"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

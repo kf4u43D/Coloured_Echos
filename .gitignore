@@ -1,0 +1,37 @@
+# Local-only work, original studies, prompts and reference material
+/.local/
+/AGENTS.md
+/*.pdf
+/*.zip
+/SUPERPROMPT*.txt
+/audio/
+/reference/
+/docs/*
+!/docs/INSTALL_NT.md
+/models/registry.json
+/models/README.md
+/models/profiles/
+/models/prerelease/
+/tools/import/inspect_known.py
+/tools/analysis/render_performance_demo.py
+/tools/analysis/render_catalog.py
+/tools/analysis/compare_voicing.py
+/tools/analysis/verify_catalog.py
+/third_party/sdk_source.json
+/third_party/device_tools.json
+
+# Generated files and local environments
+/build/
+/dist/
+/.venv/
+/tmp/
+/output/
+__pycache__/
+*.pyc
+*.user
+/.vs/
+
+# SDK snapshots are fetched from the pinned public repository
+/third_party/distingNT_API/
+/third_party/distingNT_API_1.18.0/
+/third_party/distingNT_tools_source/

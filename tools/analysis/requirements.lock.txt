@@ -1,0 +1,4 @@
+# Environnement observé, pas d'installation système requise.
+# .venv créée avec : python -m venv --system-site-packages .venv
+# Seule dépendance Python de ces outils ; version effectivement testée.
+numpy==2.4.6
