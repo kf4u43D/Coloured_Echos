@@ -17,7 +17,7 @@ class FactoryBank(unittest.TestCase):
         outputs=generator.bank_outputs()
         self.assertEqual(generator.stale_outputs(outputs),[])
         profiles={p:text for p,text in outputs.items() if p.suffix=='.profile'}
-        self.assertEqual(len(profiles),19)
+        self.assertEqual(len(profiles),17)
         for path,text in profiles.items():
             with self.subTest(profile=path.name):
                 fields=dict(line.split('=',1) for line in text.splitlines() if line and not line.startswith('#'))
@@ -38,7 +38,7 @@ class FactoryBank(unittest.TestCase):
         required=all_parameters-preserved
         header=(ROOT/'src/nt/factory_presets.h').read_text(encoding='utf-8')
         arrays=re.findall(r'inline constexpr Value p\d+\[\]=\{(.*?)\n\};',header,re.S)
-        self.assertEqual(len(arrays),19)
+        self.assertEqual(len(arrays),17)
         for index,array in enumerate(arrays):
             with self.subTest(recipe=index):
                 pairs=re.findall(r'\{(\w+),(-?\d+)\}',array)
@@ -52,10 +52,48 @@ class FactoryBank(unittest.TestCase):
         self.assertEqual(recipes['tube_slap']['division'],'1/16')
         self.assertEqual(recipes['tube_slap']['feedback'],.10)
         self.assertEqual(recipes['bloom']['mix'],1)
-        self.assertEqual(recipes['split_dots']['right_division'],'1/8D')
+        self.assertEqual(recipes['stereo_weave']['right_division'],'1/4T')
+        self.assertEqual(recipes['stereo_weave']['division'],'1/4')
+        self.assertEqual(recipes['stereo_weave']['model'],'stereo')
+        self.assertEqual(recipes['stereo_weave']['feedback'],.32)
+        self.assertEqual(recipes['stereo_weave']['stereo_ratio'],.67)
+        self.assertLess(recipes['stereo_weave']['stereo_ratio'],1)
+        self.assertAlmostEqual(recipes['stereo_weave']['stereo_ratio'],2/3,delta=.005)
         self.assertTrue(recipes['high_spark']['exciter_highpass_enabled'])
         self.assertEqual(recipes['high_spark']['feedback_highpass_hz'],300)
-        self.assertEqual([recipes[key]['tap_pattern'] for key in ('three_against_two','four_against_three','five_against_four')],[8,9,10])
+        self.assertFalse(any('against' in key for key in recipes))
+        self.assertEqual(recipes['analog_bounce']['tone_hz'],3000)
+        self.assertEqual(recipes['tape_space']['tone_hz'],4100)
+        self.assertEqual(recipes['tape_space']['division'],'1/8')
+        self.assertEqual(recipes['platter_motion']['tone_hz'],3200)
+        self.assertEqual(recipes['platter_motion']['division'],'1/4')
+        for key in ('analog_bounce','tape_space','platter_motion'):
+            self.assertEqual(recipes[key]['drive'],.4)
+            self.assertEqual(recipes[key]['mod_rate_hz'],1)
+            self.assertEqual(recipes[key]['mod_depth_ms'],6)
+        self.assertEqual(recipes['crushed_8bit']['tone_hz'],3500)
+        self.assertEqual(recipes['crushed_8bit']['lores_cutoff_hz'],2000)
+        self.assertFalse(recipes['crushed_8bit']['wet_tone_enabled'])
+
+    def test_published_factory_slots_do_not_shift_when_recipes_retire(self):
+        bank=json.loads((ROOT/'models/preset_bank.json').read_text(encoding='utf-8'))
+        expected={'clean_quarter':1,'wide_dotted':2,'clocked_grain':3,'analog_bounce':4,
+                  'tape_space':5,'tube_slap':6,'ducked_voice':7,'bloom':8,'reverse_pad':9,
+                  'stereo_weave':10,'pingpong_width':11,'crushed_8bit':12,'high_spark':13,
+                  'loop_bar':14,'filter_lift':18,'filter_fall':19,'platter_motion':20}
+        self.assertEqual({p['id']:p['slot'] for p in bank['presets']},expected)
+        self.assertEqual(bank['slot_count'],20)
+        self.assertEqual(bank['retired_slots'],[15,16,17])
+        header=(ROOT/'src/nt/factory_presets.h').read_text(encoding='utf-8')
+        body=re.search(r'inline constexpr Preset presets\[slotCount\]=\{(.*?)\n\};',header,re.S).group(1)
+        rows=[line.strip() for line in body.splitlines() if line.strip()]
+        self.assertEqual(len(rows),20)
+        for slot in bank['retired_slots']:self.assertEqual(rows[slot-1],'{"Custom",nullptr,0},')
+        self.assertIn('"Filter Lift"',rows[17])
+        self.assertIn('"Filter Fall"',rows[18])
+        self.assertIn('"Platter Motion"',rows[19])
+        active=re.search(r'activeSlots\[count\]=\{([^}]+)\}',header).group(1)
+        self.assertEqual([int(slot) for slot in active.split(',')],sorted(expected.values()))
 
     def test_stale_profiles_header_and_extra_files_are_detected_without_writing(self):
         with tempfile.TemporaryDirectory(prefix='echolab-presets-') as temporary:
@@ -63,7 +101,7 @@ class FactoryBank(unittest.TestCase):
             (root/'models').mkdir()
             (root/'models/preset_bank.json').write_bytes((ROOT/'models/preset_bank.json').read_bytes())
             outputs=generator.bank_outputs(root)
-            self.assertEqual(len(generator.stale_outputs(outputs,root)),20)
+            self.assertEqual(len(generator.stale_outputs(outputs,root)),18)
             for path,text in outputs.items():
                 path.parent.mkdir(parents=True,exist_ok=True)
                 path.write_text(text,encoding='utf-8')

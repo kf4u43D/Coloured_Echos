@@ -1,18 +1,18 @@
 # Tape Space
-# Warm quarter-note echoes with gentle motion.
-# Tape colour and a small amount of pitch movement.
+# Warm eighth-note echoes with audible tape motion.
+# Driven tape colour with 1 Hz modulation and 6 ms depth.
 sync_mode=internal
 tempo_bpm=120
-division=1/4
+division=1/8
 right_division=ratio
 model=tape
 feedback=0.14
 mix=0.39
 tone_hz=4100
-drive=0.28
+drive=0.4
 bit_depth=8
-mod_rate_hz=0.25
-mod_depth_ms=2.5
+mod_rate_hz=1
+mod_depth_ms=6
 duck_threshold_db=-24
 duck_amount=0.9
 attack_ms=5

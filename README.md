@@ -1,6 +1,6 @@
 # EchoLabNT
 
-A stereo delay plug-in for Expert Sleepers disting NT, with 20 treatments and 19 musical presets covering analog, tube, tape, digital, multi-head, swept filters, reverse, ducking, auto-volume and looping. Shape repeats with tone, drive, modulation, CV and MIDI clock, or use the internal tempo.
+A stereo delay plug-in for Expert Sleepers disting NT, with 20 treatments and 17 musical presets covering analog, tube, tape, platter, digital, multi-head, swept filters, reverse, ducking, auto-volume and looping. Shape repeats with tone, drive, modulation, CV and MIDI clock, or use the internal tempo.
 
 Target: disting NT firmware 1.18.0 / API 13.
 
@@ -15,3 +15,5 @@ Target: disting NT firmware 1.18.0 / API 13.
 See [installation and controls](docs/INSTALL_NT.md) for routing, clock and modulation settings.
 
 Internal tempo starts at 120 BPM. Choose a musical recipe from **Model → Preset**; note divisions follow the selected clock. See the [preset guide](docs/PRESETS.md).
+
+**Stereo Weave** plays a 3:2 rhythm across the two outputs. For a mono source, select the same input bus for both Input L and Input R; use separate left and right output buses to hear the stereo pattern.

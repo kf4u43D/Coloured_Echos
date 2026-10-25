@@ -1,6 +1,6 @@
 # EchoLabNT presets
 
-Choose **Preset** on the Model page. The bank contains 19 musical starting points; **Custom** keeps your own settings. A new instance starts with Internal BPM at 120 BPM. Preset changes retain an active clock source and your tempo. Selecting a musical preset from Free enables Internal BPM.
+Choose **Preset** on the Model page. The bank contains 17 musical starting points; **Custom** keeps your own settings. A new instance starts with Internal BPM at 120 BPM. Preset changes retain an active clock source, tempo, audio routing and CV input buses. Each recipe sets its own sound controls and modulation mappings. Selecting a musical preset from Free enables Internal BPM.
 
 The profiles store note values, not a fixed delay in milliseconds. D means dotted and T means triplet. At 120 BPM, a quarter note lasts 500 ms and a sixteenth lasts 125 ms. External MIDI/CV clock can drive the same divisions.
 
@@ -9,32 +9,34 @@ The profiles store note values, not a fixed delay in milliseconds. D means dotte
 | Clean Quarter | Clear repeats for rhythmic accompaniment. | 1/4 | 28% | 39% | 16000 Hz |
 | Wide Dotted | Moving dotted echoes for sustained parts. | 1/8D | 22% | 39% | 16000 Hz |
 | Clocked Grain | Precise repeats with a restrained digital texture. | 1/8 | 22% | 39% | 16000 Hz |
-| Analog Bounce | Dark, compact echoes around the dry phrase. | 1/8D | 13% | 39% | 2400 Hz |
-| Tape Space | Warm quarter-note echoes with gentle motion. | 1/4 | 14% | 39% | 4100 Hz |
+| Analog Bounce | Driven analog repeats around the dry phrase. | 1/8D | 13% | 39% | 3000 Hz |
+| Tape Space | Moving tape echoes with a short rhythmic bounce. | 1/8 | 14% | 39% | 4100 Hz |
 | Tube Slap | A short body-building slap behind the dry sound. | 1/16 | 10% | 30% | 3000 Hz |
 | Ducked Voice | Echoes that leave room for the incoming phrase. | 1/4 | 28% | 39% | 4800 Hz |
 | Bloom | A fully wet swell for soft entrances and pads. | 1/16 | 22% | 100% | 4400 Hz |
 | Reverse Pad | A spacious reverse layer for sustained material. | 1/2 | 20% | 65% | 3800 Hz |
-| Split Dots | Two complementary rhythms across the stereo field. | 1/4 / 1/8D R | 24% | 39% | 4600 Hz |
+| Stereo Weave | Two independent rhythms woven across the stereo field. | 1/4 L / 1/4T R | 32% | 39% | 4400 Hz |
 | Pingpong Width | Alternating repeats that open the stereo image. | 1/8 | 24% | 39% | 5200 Hz |
-| Crushed 8bit | Grainy repeats that become coarser as the phrase fades. | 1/8D | 24% | 39% | 1800 Hz |
+| Crushed 8bit | Grainy repeats that become coarser as the phrase fades. | 1/8D | 28% | 39% | 3500 Hz* |
 | High Spark | Bright, lightweight repeats above the main phrase. | 1/8 | 14% | 39% | 5000 Hz |
 | Loop Bar | Capture and repeat one bar at the selected tempo. | 1/1 | 28% | 100% | 20000 Hz |
-| 3 against 2 | A three-against-two rhythmic echo pattern. | 1/1 | 18% | 39% | 3500 Hz |
-| 4 against 3 | A four-against-three rhythmic echo pattern. | 1/1 | 16% | 39% | 3900 Hz |
-| 5 against 4 | A dense five-against-four rhythmic echo pattern. | 1/1 | 16% | 39% | 3300 Hz |
 | Filter Lift | A rising high-pass echo gesture. | 1/4 | 20% | 50% | 5200 Hz |
 | Filter Fall | A descending low-pass echo gesture. | 1/4 | 18% | 50% | 1900 Hz |
+| Platter Motion | A moving disc-style echo with a dense, rounded repeat. | 1/4 | 18% | 39% | 3200 Hz |
+
+*Crushed 8bit uses its own 2000 Hz wet cutoff. The common wet Tone filter is off, so the stored Tone value does not add a second filter.
 
 ## Pick a role
 
 **Clean Quarter** is the precise digital repeat. **Wide Dotted** adds slow stereo pitch motion. **Clocked Grain** reduces the internal sample rate, giving a distinct digital texture. The three engines serve different roles.
 
-**Tube Slap** gives a short, restrained repeat. **Analog Bounce** and **Tape Space** use lower feedback to keep their driven repeats controlled. **Ducked Voice** reduces echoes while the input is present; **Bloom** uses a fully wet, 600 ms volume rise for soft entrances. Its short note delay keeps the swell in focus.
+**Tube Slap** gives a short, restrained repeat. **Analog Bounce**, **Tape Space** and **Platter Motion** use driven colour with controlled feedback. Tape and Platter use 1 Hz modulation at 6 ms depth: Tape gives a short moving repeat, while Platter leaves more space between its rounded quarter-note echoes. **Crushed 8bit** combines eight-bit quantization, its own wet filter and an internal sample rate that falls from 8000 to 1200 Hz as the phrase fades.
 
-**Split Dots** sets different musical divisions on the two sides. **High Spark** filters the Exciter return below 300 Hz. **Loop Bar** records four quarter-note beats (one bar in 4/4) and stays in memory; its Tone is 20 kHz. Choose enough Max delay for long cycles: four beats at 60 BPM require four seconds.
+**Ducked Voice** reduces echoes while the input is present; **Bloom** uses a fully wet, 600 ms volume rise for soft entrances. Its short note delay keeps the swell in focus.
 
-**3 against 2**, **4 against 3** and **5 against 4** place two evenly spaced pulse grids inside one shared cycle. Coincident taps are accented. The Delay division sets the full cycle; each repeat restarts the same pattern.
+**High Spark** filters the Exciter return below 300 Hz. **Loop Bar** records four quarter-note beats (one bar in 4/4) and stays in memory; its Tone is 20 kHz. Choose enough Max delay for long cycles: four beats at 60 BPM require four seconds.
+
+**Stereo Weave** uses separate feedback paths: quarter notes on the left and quarter-note triplets on the right. At 120 BPM, repeats arrive every 500 ms on the left and every 333.33 ms on the right. Two left pulses and three right pulses meet every two beats, producing a 3:2 rhythm. The left/right balance follows your input, so feed a mono source to both Input L and Input R and keep the outputs separate. Set both note values on the Stereo page; active Internal, MIDI or CV clock keeps their relationship exact. Free mode or a missing external clock uses the manual Time and an approximate R/L ratio of 0.67.
 
 ## Production techniques
 

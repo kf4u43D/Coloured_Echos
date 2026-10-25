@@ -102,6 +102,31 @@ void stereoMusicalRatios() {
         }
     }
 }
+void stereoThreeAgainstTwoMusicalTiming() {
+    constexpr unsigned fs=48000;
+    for(unsigned bpm : {120u,100u}) {
+        const unsigned left=fs*60/bpm,right=left*2/3,cycle=left*2;
+        Fixture f(fs,700);
+        auto p=neutralParameters();p.model=echolab::Model::StereoDelays;
+        p.delay_ms=60000.0f/bpm;p.stereo_ratio=2.0f/3.0f;p.feedback=.5f;p.mix=1;p.modulation_enabled=false;
+        f.engine.setParameters(p);f.engine.reset();
+        unsigned leftPulses=0,rightPulses=0;
+        for(unsigned n=0;n<=cycle*3;++n) {
+            float l,r;f.engine.processSample(n == 0 ? .2f : 0,n == 0 ? -.1f : 0,l,r);
+            const float expectedL=n && n%left == 0 ? .2f*std::pow(.5f,static_cast<float>(n/left-1)) : 0;
+            const float expectedR=n && n%right == 0 ? -.1f*std::pow(.5f,static_cast<float>(n/right-1)) : 0;
+            near(l,expectedL,0,"musical Stereo keeps left-quarter repeats at their own beat and feedback count");
+            near(r,expectedR,0,"musical Stereo keeps right-quarter-triplet repeats separate at120 and100BPM");
+            leftPulses+=l!=0;rightPulses+=r!=0;
+        }
+        check(leftPulses==6 && rightPulses==9,"three complete Stereo cycles contain two left and three right pulses each");
+        f.engine.reset();
+        for(unsigned n=0;n<=cycle;++n) {
+            float l,r;f.engine.processSample(n == 0 ? .2f : 0,0,l,r);
+            near(r,0,0,"independent Stereo feedback does not invent right excitation when only left input is connected");
+        }
+    }
+}
 void pingPongTopology() {
     for (const auto input : {0,1,2,3}) {
         Fixture f(8000,2);
@@ -809,6 +834,31 @@ void optionalModulationAndLoResRateRoute() {
         if (n>1) near(c,0,0,"LoRes cutoff does not contaminate its bypassed counterpart");
     }
 }
+void platterModulationOffRemovesDepthOffset() {
+    for(float fs : {8000.0f,48000.0f}) for(int voicing : {1,2,3}) {
+        Fixture zeroDepth(fs,20),depthAndCv(fs,20);
+        auto p=neutralParameters();p.model=echolab::Model::EchoPlatter;p.voicing=voicing;
+        p.delay_ms=10;p.feedback=.5f;p.mix=1;p.tone_hz=1000;p.modulation_enabled=false;p.mod_depth_ms=0;
+        zeroDepth.engine.setParameters(p);zeroDepth.engine.reset();
+        p.mod_depth_ms=1;p.mod1_source=3;p.mod1_destination=6;p.mod1_amount=.5f;
+        depthAndCv.engine.setParameters(p);depthAndCv.engine.setExternalModulation(.8f,0,0);depthAndCv.engine.reset();
+        for(unsigned n=0;n<static_cast<unsigned>(fs*.05f);++n) {
+            const float input=n == 0 ? .2f : (n == 37 ? -.08f : 0);float a,b,c,d;
+            zeroDepth.engine.processSample(input,-.5f*input,a,b);depthAndCv.engine.processSample(input,-.5f*input,c,d);
+            check(a==c && b==d,"Platter Internal Modulation Off removes base and routed Depth instead of retaining a frozen wow offset");
+        }
+        p.modulation_enabled=true;p.mod_depth_ms=0;p.mod1_source=p.mod1_destination=0;
+        zeroDepth.engine.setParameters(p);zeroDepth.engine.reset();p.mod_depth_ms=1;
+        depthAndCv.engine.setParameters(p);depthAndCv.engine.reset();
+        bool changed=false;
+        for(unsigned n=0;n<static_cast<unsigned>(fs*.05f);++n) {
+            const float input=n == 0 ? .2f : 0;float a,b,c,d;
+            zeroDepth.engine.processSample(input,-.5f*input,a,b);depthAndCv.engine.processSample(input,-.5f*input,c,d);
+            changed=changed || std::fabs(a-c)>1e-4f || std::fabs(b-d)>1e-4f;
+        }
+        check(changed,"Platter Depth remains audible with Internal Modulation On in every voicing and Fs");
+    }
+}
 void colourCompensationAndSlowDrift() {
     Fixture coloured(48000,50),linear(48000,50);
     auto p=neutralParameters();p.model=echolab::Model::Analog;p.delay_ms=2;p.feedback=0;p.mix=1;p.tone_hz=3500;p.drive=.4f;
@@ -1158,10 +1208,10 @@ void operator delete(void* ptr,std::size_t) noexcept { std::free(ptr); }
 void operator delete[](void* ptr,std::size_t) noexcept { std::free(ptr); }
 
 int main() {
-    impulseAndInterpolation(); exact48kLongDelay(); stereoMusicalRatios(); pingPongTopology(); multiHeadTopology();
+    impulseAndInterpolation(); exact48kLongDelay(); stereoMusicalRatios(); stereoThreeAgainstTwoMusicalTiming(); pingPongTopology(); multiHeadTopology();
     lowResolutionQuantization();dynamicDuckingAndRecovery();automaticVolumeSwell();sharedMemoryCanariesAndModelChanges();
     fractionalSampleRateReduction();decliningLoResPhraseEnvelope();oneWaySweepDirections();sweepFilterSpectra();feedbackAboveUnityAndLimiter();exciterInFeedbackOnly();optionalExciterHighpass();selectableHeadPattern();polyrhythmPulseGrids();optionalWetTone();liveLooperRecordUsesConfiguredTime();externalModulationRouting();
-    feedbackLowpassPlacementAndSlope();feedbackHighpassPlacementAndSlope();rackRateIsModelSpecific();selectedVoicingsAndLegacyFeedback();optionalModulationAndLoResRateRoute();colourCompensationAndSlowDrift();
+    feedbackLowpassPlacementAndSlope();feedbackHighpassPlacementAndSlope();rackRateIsModelSpecific();selectedVoicingsAndLegacyFeedback();optionalModulationAndLoResRateRoute();platterModulationOffRemovesDepthOffset();colourCompensationAndSlowDrift();
     memoryAndReset(); eventAndBlockInvariance(); ratesExtremesAndAllocations();
     if (failures) { std::cerr << failures << " DSP checks failed\n"; return 1; }
     std::cout << "DSP analytical, memory, stereo, events, block invariance, Fs, reset, finite-state and allocation checks passed\n";

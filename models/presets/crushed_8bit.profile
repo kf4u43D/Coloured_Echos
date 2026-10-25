@@ -1,18 +1,18 @@
 # Crushed 8bit
-# Grainy repeats that become coarser as the phrase fades.
-# Eight-bit dotted echoes with a descending internal sample rate.
+# Grainy repeats with a soft, descending digital texture.
+# Eight-bit dotted echoes with descending sample rate and a separate 2 kHz reconstruction filter.
 sync_mode=internal
 tempo_bpm=120
 division=1/8D
 right_division=ratio
 model=8bit
-feedback=0.24
+feedback=0.28
 mix=0.39
-tone_hz=1800
-drive=0
+tone_hz=3500
+drive=0.4
 bit_depth=8
-mod_rate_hz=1
-mod_depth_ms=6
+mod_rate_hz=0.25
+mod_depth_ms=2
 duck_threshold_db=-24
 duck_amount=0.9
 attack_ms=5
@@ -40,8 +40,8 @@ lores_rate_end_hz=1200
 lores_rate_decay_ms=1500
 lores_rate_envelope_amount=1
 digital_rack_rate_hz=16000
-lores_cutoff_hz=0
+lores_cutoff_hz=2000
 voicing=b06
 modulation_enabled=1
 exciter_highpass_enabled=0
-wet_tone_enabled=1
+wet_tone_enabled=0

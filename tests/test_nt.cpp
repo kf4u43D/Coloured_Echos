@@ -893,7 +893,8 @@ static void checkRecipe(const Instance& instance,const preset_bank::Preset& pres
     near(state->controls.mix,value(state,Mix)*.001f,1e-6f,"recipe mix matches its visible parameter");
 }
 static void factoryPresetBank() {
-    for(bool deferred : {false,true}) for(unsigned selected=1;selected<=preset_bank::count;++selected) {
+    for(bool deferred : {false,true}) for(unsigned active=0;active<preset_bank::count;++active) {
+        const unsigned selected=preset_bank::activeSlots[active];
         deferParameterWrites=deferred;queuedWrites.clear();
         Instance instance(3,false,0,0,false,false);
         instance.set(Time,731);instance.set(InputL,3);instance.set(CV1Bus,15);
@@ -992,6 +993,137 @@ static void recipesPreserveLiveClock() {
     check(state->clock.locked() && internal.values[SyncMode]==2 && internal.values[ClockPpqn]==0 && internal.values[ClockBus]==3,
           "recipes retain the CV clock source, pulse rate, bus and lock");
 }
+static void stablePresetSlots() {
+    check(preset_bank::count==17 && preset_bank::slotCount==20 && activePreset(18) && activePreset(19) && activePreset(20),
+          "the curated bank preserves Filter slots and appends Platter without compacting saved IDs");
+    for(bool deferred : {false,true}) for(int saved : {15,16,17}) {
+        deferParameterWrites=deferred;queuedWrites.clear();
+        Instance old(3,false,1,0,true,true,saved);
+        old.set(Model,4);old.set(TapPattern,saved-7);
+        std::vector<float> buses(kNT_lastBus*128,0.0f);step(old.self,buses.data(),32);
+        auto* state=static_cast<Algorithm*>(old.self);
+        check(old.values[FactoryPreset]==saved && state->controls.model==echolab::Model::MultiHead &&
+              state->controls.tap_pattern==saved-7 && std::strcmp(preset_bank::names[saved],"Custom")==0,
+              "saved removed recipes retain their model, tap pattern and sound and display Custom");
+        check(!activePreset(saved),"retired slots remain tombstones rather than becoming a different recipe");
+        old.set(FactoryPreset,16==saved ? 15 : 16);
+        const int expected=saved==15 ? 18 : 14;
+        check(state->observedPreset==expected && value(state,FactoryPreset)==expected,
+              "explicit retired-slot selections skip to the active recipe in the direction of travel");
+        flushParameterWrites();
+        check(old.values[FactoryPreset]==expected && state->pendingWrites==0,"retired-slot skip persists through immediate or deferred host callbacks");
+        checkRecipe(old,preset_bank::presets[expected-1]);
+        old.set(FactoryPreset,20);flushParameterWrites();
+        check(old.values[FactoryPreset]==20 && state->controls.model==echolab::Model::EchoPlatter,
+              "the appended Platter slot is usable without stealing any older recipe ID");
+    }
+    deferParameterWrites=false;
+}
+static void meaningfulModulationRouting() {
+    Instance i;std::vector<float> buses(kNT_lastBus*128,0.0f);step(i.self,buses.data(),32);
+    auto* state=static_cast<Algorithm*>(i.self);
+    char text[kNT_parameterStringSize]{};
+    i.set(Mod1Source,3);i.set(Mod1Amount,500);i.set(Mod1Destination,3);
+    check(i.values[Mod1Destination]==5 && state->controls.mod1_destination==5,
+          "Digital without wet Tone skips ineffective Tone and Drive targets during explicit route editing");
+    check(parameterString(i.self,Mod1Destination,3,text)>0 && std::strcmp(text,"Tone (off)")==0,
+          "an inactive saved Tone route is described honestly");
+    i.set(WetToneOn,1);i.set(Mod1Destination,3);
+    check(i.values[Mod1Destination]==3 && pageHas(i.self,Tone),"enabling Digital wet Tone makes both its knob and modulation destination available");
+    i.set(Model,5);i.set(WetToneOn,0);
+    check(i.values[Mod1Destination]==3 && state->controls.mod1_destination==3,
+          "switching models preserves a remembered route without silently redirecting it to a different parameter");
+    check(parameterString(i.self,Mod1Destination,3,text)>0 && std::strstr(text,"off"),"the remembered inactive route is marked off");
+    i.set(Mod1Destination,8);check(i.values[Mod1Destination]==8,"8bit sample-rate modulation remains available at a reduced sample rate");
+    i.set(SampleRateHz,0);
+    check(i.values[Mod1Destination]==8 && parameterString(i.self,Mod1Destination,8,text)>0 && std::strstr(text,"off"),
+          "Full Fs leaves the saved 8bit route intact while marking its bypass explicitly");
+    i.set(Mod1Source,1);i.set(Mod2Source,2);i.set(ModulationEnabled,0);
+    check(pageHas(i.self,ModRate) && pageHas(i.self,Attack) && pageHas(i.self,Release),
+          "mapped LFO and envelope sources expose the controls that actually shape those sources on non-native models");
+    check(parameterString(i.self,Mod1Source,1,text)>0 && std::strcmp(text,"LFO (off)")==0 &&
+          parameterString(i.self,Mod2Source,2,text)>0 && std::strcmp(text,"Envelope (off)")==0,
+          "Internal modulation Off is explicit for both gated mapping sources");
+    check(parameterString(i.self,Mod1Source,3,text)>0 && std::strcmp(text,"CV 1 (off)")==0 &&
+          parameterString(i.self,Mod2Source,4,text)>0 && std::strcmp(text,"CV 2 (off)")==0,
+          "CV sources with no assigned input bus report their inactive state");
+    i.set(CV1Bus,3);i.set(CV2Bus,4);
+    check(parameterString(i.self,Mod1Source,3,text)>0 && std::strcmp(text,"CV 1")==0 &&
+          parameterString(i.self,Mod2Source,4,text)>0 && std::strcmp(text,"CV 2")==0,
+          "assigning CV buses makes their existing source selections available without remapping IDs");
+    i.set(Model,9);i.set(ModulationEnabled,1);i.set(Mod1Destination,6);
+    check(i.values[Mod1Destination]==6,"native modulation Depth is a selectable destination where it changes the delay");
+    i.set(ModulationEnabled,0);
+    check(parameterString(i.self,Mod1Destination,6,text)>0 && std::strcmp(text,"Depth (off)")==0,
+          "Depth mapping reflects the internal modulation master switch");
+    i.set(Model,17);i.set(Mod1Destination,7);
+    check(i.values[Mod1Destination]==7,"Exciter amount routing is selectable on Exciter");
+    i.set(Model,1);
+    check(i.values[Mod1Destination]==7 && parameterString(i.self,Mod1Destination,7,text)>0 && std::strstr(text,"off"),
+          "a remembered Exciter route stays inert on Analog and never changes another control");
+    for(bool deferred : {false,true}) {
+        deferParameterWrites=deferred;queuedWrites.clear();
+        Instance pending;step(pending.self,buses.data(),32);
+        pending.set(Mod1Destination,4);flushParameterWrites();
+        check(pending.values[Mod1Destination]==5 && static_cast<Algorithm*>(pending.self)->pendingWrites==0,
+              "contextual target skips settle safely with immediate or delayed host setters");
+        auto* queued=static_cast<Algorithm*>(pending.self);
+        queued->applyingPreset=true;
+        requestParameter(queued,Mod1Destination,4);updateControls(queued);
+        queued->applyingPreset=false;flushParameterWrites();
+        check(pending.values[Mod1Destination]==4 && queued->controls.mod1_destination==4,
+              "host acknowledgements of saved or batch-owned routes never redirect an inactive target to another parameter");
+        pending.set(Mod1Destination,5);pending.set(Mod1Destination,4);pending.set(Mod1Destination,1);
+        flushParameterWrites();
+        check(pending.values[Mod1Destination]==1 && queued->controls.mod1_destination==1 &&
+              queued->observedDestinations[0]==1 && queued->pendingWrites==0,
+              "late destination-skip acknowledgements preserve a newer direct Time assignment and its edit direction");
+        pending.set(Mod1Destination,4);pending.set(Mod1Destination,3);flushParameterWrites();
+        check(pending.values[Mod1Destination]==2 && queued->controls.mod1_destination==2 && queued->observedDestinations[0]==2,
+              "rapid contextual selections coalesce to the latest meaningful target");
+    }
+    deferParameterWrites=false;
+    i.set(WetToneOn,1);i.set(ExciterHighpassOn,1);i.set(Mod1Source,1);i.set(Mod2Source,2);
+    for(int model=0;model<echolab::modelCount;++model) {
+        i.set(Model,model);
+        check(i.self->parameterPages->numPages<=ARRAY_SIZE(state->pageStorage),
+              "both contextual modulation pages fit bounded storage for every model and optional Color combination");
+        for(uint32_t page=0;page<i.self->parameterPages->numPages;++page) {
+            const auto& definition=i.self->parameterPages->pages[page];
+            for(unsigned p=0;p<definition.numParams;++p) check(definition.params[p]<ParameterCount,
+                  "contextual parameter routes retain valid published parameter IDs");
+        }
+    }
+}
+static void stereoWeaveMonoRouting() {
+    for(bool bothInputs : {false,true}) {
+        Instance instance(3,false,0,0,false,false);
+        instance.set(InputL,1);instance.set(InputR,bothInputs ? 1 : 0);
+        instance.set(OutputModeL,1);instance.set(OutputModeR,1);
+        constexpr int n=128;
+        std::vector<float> buses(kNT_lastBus*n,0.0f);step(instance.self,buses.data(),n/4);
+        instance.set(FactoryPreset,10);
+        auto* state=static_cast<Algorithm*>(instance.self);
+        check(instance.values[InputL]==1 && instance.values[InputR]==(bothInputs ? 1 : 0),"the stereo recipe preserves the user's actual audio routing");
+        check(instance.values[Division]==2 && instance.values[RightDivision]==8,
+              "Stereo Weave routes quarter-note left and quarter-note-triplet right independently");
+        near(state->controls.delay_ms,500,1e-4f,"Stereo Weave left quarter follows 120 BPM");
+        near(state->controls.stereo_ratio,2.0f/3.0f,1e-6f,"Stereo Weave uses the exact three-to-two timing ratio");
+        state->engine.reset();
+        int firstL=-1,firstR=-1;
+        for(int frame=0;frame<26000;frame+=n) {
+            std::fill(buses.begin(),buses.end(),0.0f);if(frame==0) buses[0]=4;
+            step(instance.self,buses.data(),n/4);
+            for(int k=0;k<n;++k) if(frame+k>0) {
+                if(firstL<0 && std::fabs(buses[12*n+k])>1e-6f) firstL=frame+k;
+                if(firstR<0 && std::fabs(buses[13*n+k])>1e-6f) firstR=frame+k;
+            }
+        }
+        check(firstL==24000,"a mono signal feeding the left stereo engine produces its quarter-note repeat");
+        check(firstR==(bothInputs ? 16000 : -1),
+              "feeding both NT inputs from the mono bus produces the right triplet; None intentionally remains silent");
+    }
+}
 int main() {
     try {
         check(pluginEntry(kNT_selector_version,0)==13,"firmware 1.18 API 13 compatibility");
@@ -1012,7 +1144,7 @@ int main() {
               parameters[LoResCutoffHz].def==2000 && parameters[Voicing].def==0 && parameters[ModulationEnabled].def==1 &&
               parameters[Version].min==0 && parameters[Version].max==1 && parameters[Version].def==0 && parameters[RightDivision].def==0 &&
               parameters[SyncMode].def==3 && parameters[TempoBpm].def==120 && parameters[Division].def==2 &&
-              parameters[FactoryPreset].def==0 && parameters[FactoryPreset].max==static_cast<int>(preset_bank::count) &&
+              parameters[FactoryPreset].def==0 && parameters[FactoryPreset].max==static_cast<int>(preset_bank::slotCount) &&
               parameters[ExciterHighpassOn].def==0 && parameters[WetToneOn].def==0 && parameters[TapPattern].max==10,
               "published musical defaults, Lo Res envelope and -1dB NT maximum");
         check(std::strcmp(modelNames[8],"Sweep Down (provisional)")==0 && std::strcmp(modelNames[18],"Sweep Up (provisional)")==0,
@@ -1033,7 +1165,7 @@ int main() {
         for(int model=0;model<echolab::modelCount;++model) sharedCoreAndInstances(model);
         statefulModelAliases(); analyticalNewModelRouting(); bypassAndNonfinite(); appendedControls();
         dynamicPagesAndControls();musicalTapPagesAndCapacity();finalBusLimiter();singleMusicalStage();clockAndCvAliasing();timingPageFollowsClock();versionMigrationAndSelection();synchronizedStereoNotes();modulationCvAliasing();depthCvAndWheelRouting();
-        digitalRackInternalRate();loresFeMappings();firstPresetLoopLength();productionDefaultsAndOptionalColor();factoryPresetBank();recipesPreserveLiveClock();
+        digitalRackInternalRate();loresFeMappings();firstPresetLoopLength();productionDefaultsAndOptionalColor();factoryPresetBank();recipesPreserveLiveClock();stablePresetSlots();meaningfulModulationRouting();stereoWeaveMonoRouting();
         check(hostParameterErrors==0,"host parameter writes use valid algorithms, ranges and the required parameter offset");
         std::cout << "NT adapter: complete catalog, appended controls, analytical ping-pong/multi-head, stateful bus aliases, modes, None, bounds, instance isolation, core parity passed\n";
         return 0;

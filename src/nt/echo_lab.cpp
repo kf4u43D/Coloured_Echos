@@ -79,11 +79,11 @@ static const _NT_parameter parameters[] = {
     {"Exciter amount", 0, 1000, 100, kNT_unitPercent, kNT_scaling10, nullptr},
     {"Exciter tune", 200, 10000, 4000, kNT_unitHz, 0, nullptr},
     {"Tap pattern", 0, echolab::multitap::patternCount-1, 0, kNT_unitHasStrings, 0, nullptr},
-    {"Mod 1 source", 0, 5, 0, kNT_unitEnum, 0, sourceNames},
-    {"Mod 1 target", 0, 8, 0, kNT_unitEnum, 0, destinationNames},
+    {"Mod 1 source", 0, 5, 0, kNT_unitHasStrings, 0, nullptr},
+    {"Mod 1 target", 0, 8, 0, kNT_unitHasStrings, 0, nullptr},
     {"Mod 1 amount", -1000, 1000, 0, kNT_unitPercent, kNT_scaling10, nullptr},
-    {"Mod 2 source", 0, 5, 0, kNT_unitEnum, 0, sourceNames},
-    {"Mod 2 target", 0, 8, 0, kNT_unitEnum, 0, destinationNames},
+    {"Mod 2 source", 0, 5, 0, kNT_unitHasStrings, 0, nullptr},
+    {"Mod 2 target", 0, 8, 0, kNT_unitHasStrings, 0, nullptr},
     {"Mod 2 amount", -1000, 1000, 0, kNT_unitPercent, kNT_scaling10, nullptr},
     NT_PARAMETER_CV_INPUT("Mod CV 1", 0, 0)
     NT_PARAMETER_CV_INPUT("Mod CV 2", 0, 0)
@@ -104,7 +104,7 @@ static const _NT_parameter parameters[] = {
     {"Internal modulation", 0, 1, 1, kNT_unitEnum, 0, onOffNames},
     {"Version", 0, 1, 0, kNT_unitHasStrings, 0, nullptr},
     {"Right division", 0, 10, 0, kNT_unitEnum, 0, rightDivisionNames},
-    {"Preset", 0, preset_bank::count, 0, kNT_unitEnum, 0, preset_bank::names},
+    {"Preset", 0, preset_bank::slotCount, 0, kNT_unitEnum, 0, preset_bank::names},
     {"Exciter return HP", 0, 1, 0, kNT_unitEnum, 0, onOffNames},
     {"Wet tone", 0, 1, 0, kNT_unitEnum, 0, onOffNames},
 };
@@ -114,6 +114,7 @@ static const uint8_t syncedMainParams[] = {Division, Feedback, Mix};
 static const uint8_t routingParams[] = {InputL, InputR, OutputL, OutputModeL, OutputR, OutputModeR, Bypass};
 static const uint8_t modulationParams[] = {ModRate, ModDepth};
 static const uint8_t rateParams[] = {ModRate};
+static const uint8_t mappedEnvelopeParams[] = {Attack, Release};
 static const uint8_t resolutionParams[] = {BitDepth, SampleRateHz, LoResCutoffHz};
 static const uint8_t legacyResolutionParams[] = {BitDepth, SampleRateHz};
 static const uint8_t rateEnvelopeParams[] = {LoResEndHz, LoResDecayMs, LoResEnvelopeAmount};
@@ -151,7 +152,10 @@ struct Algorithm : _NT_algorithm {
     bool visibleRightRatio = true;
     bool visibleWetTone = false;
     bool visibleExciterHighpass = false;
+    bool visibleMappedLfo = false;
+    bool visibleMappedEnvelope = false;
     int observedVersion = 0;
+    int observedDestinations[2]{};
     int pendingVoicing = -1;
     int observedPreset = 0;
     std::uint64_t pendingWrites = 0;
@@ -172,6 +176,28 @@ static bool hasVersion(int model) {
     if(model==2 || model==19) return false;
     return echolab::resolvedVoicing(static_cast<echolab::Model>(model),0)!=3;
 }
+static bool nativeTone(int model) {
+    return model==1 || model==2 || model==4 || model==7 || model==8 || model==9 || model==14 || model==18 || model==19;
+}
+static bool meaningfulDestination(const Algorithm* self,int destination) {
+    const int model=value(self,Model);
+    switch(destination) {
+    case 0: case 1: case 2: case 5: return true;
+    case 3: return nativeTone(model) || value(self,WetToneOn)!=0;
+    case 4: return nativeTone(model) || model==17;
+    case 6: return value(self,ModulationEnabled)!=0 && (model==7 || model==9 || model==10 || model==14);
+    case 7: return model==17;
+    case 8: return model==5 && value(self,SampleRateHz)!=0;
+    default: return false;
+    }
+}
+static int selectableDestination(const Algorithm* self,int requested,int previous) {
+    if(meaningfulDestination(self,requested)) return requested;
+    const int direction=requested>previous ? 1 : -1;
+    for(int target=requested+direction;target>=0 && target<=8;target+=direction)
+        if(meaningfulDestination(self,target)) return target;
+    return 0;
+}
 
 static void updatePages(Algorithm* self, int model, bool notify) {
     const int voice=echolab::resolvedVoicing(static_cast<echolab::Model>(model),self->controls.voicing);
@@ -179,9 +205,12 @@ static void updatePages(Algorithm* self, int model, bool notify) {
     const bool rightRatio=value(self,RightDivision)==0;
     const bool wetTone=value(self,WetToneOn)!=0;
     const bool exciterHighpass=value(self,ExciterHighpassOn)!=0;
+    const bool mappedLfo=value(self,Mod1Source)==1 || value(self,Mod2Source)==1;
+    const bool mappedEnvelope=value(self,Mod1Source)==2 || value(self,Mod2Source)==2;
     if(self->visibleModel==model && self->visibleVoicing==voice && self->visibleSyncedTime==syncedTime &&
        (model!=15 || self->visibleRightRatio==rightRatio) && self->visibleWetTone==wetTone &&
-       self->visibleExciterHighpass==exciterHighpass) return;
+       self->visibleExciterHighpass==exciterHighpass && self->visibleMappedLfo==mappedLfo &&
+       self->visibleMappedEnvelope==mappedEnvelope) return;
     unsigned count=0;
     const auto add=[&](const char* name,const uint8_t* ids,std::size_t size,uint8_t group) {
         self->pageStorage[count++]={name,static_cast<uint8_t>(size),group,{0,0},ids};
@@ -189,11 +218,11 @@ static void updatePages(Algorithm* self, int model, bool notify) {
     add("Delay",syncedTime ? syncedMainParams : mainParams,ARRAY_SIZE(mainParams),2);
     add("Model",modelParams,ARRAY_SIZE(modelParams),1);
     unsigned colorCount=0;
-    const bool nativeTone=model==1 || model==2 || model==4 || model==7 || model==8 || model==9 || model==14 || model==18 || model==19;
+    const bool modelTone=nativeTone(model);
     if(hasVersion(model)) self->colorParameters[colorCount++]=Version;
     self->colorParameters[colorCount++]=WetToneOn;
-    if(nativeTone || wetTone) self->colorParameters[colorCount++]=Tone;
-    if(nativeTone || model==17) self->colorParameters[colorCount++]=Drive;
+    if(modelTone || wetTone) self->colorParameters[colorCount++]=Tone;
+    if(modelTone || model==17) self->colorParameters[colorCount++]=Drive;
     if(model==17 && voice==1) {
         self->colorParameters[colorCount++]=ExciterHighpassOn;
         if(exciterHighpass) self->colorParameters[colorCount++]=FeedbackHPHz;
@@ -202,6 +231,10 @@ static void updatePages(Algorithm* self, int model, bool notify) {
     if(model==7 || model==9 || model==10 || model==14)
         add("Modulation",modulationParams,ARRAY_SIZE(modulationParams),4);
     if(model==8 || model==18) add("Sweep",rateParams,ARRAY_SIZE(rateParams),4);
+    if(mappedLfo && model!=7 && model!=9 && model!=10 && model!=14 && model!=8 && model!=18)
+        add("Mapped LFO",rateParams,ARRAY_SIZE(rateParams),4);
+    if(mappedEnvelope && model!=6 && model!=12)
+        add("Mapped envelope",mappedEnvelopeParams,ARRAY_SIZE(mappedEnvelopeParams),15);
     if(model==4) {
         if(syncedTime) add("Heads",syncedTapParams,ARRAY_SIZE(syncedTapParams),5);
         else add("Heads",tapParams,ARRAY_SIZE(tapParams),5);
@@ -241,6 +274,8 @@ static void updatePages(Algorithm* self, int model, bool notify) {
     self->visibleRightRatio=rightRatio;
     self->visibleWetTone=wetTone;
     self->visibleExciterHighpass=exciterHighpass;
+    self->visibleMappedLfo=mappedLfo;
+    self->visibleMappedEnvelope=mappedEnvelope;
     if(notify) { const auto index=NT_algorithmIndex(self);if(index>=0) NT_updateParameterPages(static_cast<uint32_t>(index)); }
 }
 
@@ -369,8 +404,19 @@ static void updateControls(Algorithm* self) {
     self->outputLimiter.setCeiling(self->controls.limiter_ceiling);
     self->engine.setParameters(self->controls);
 }
+static bool activePreset(int slot) {
+    return slot>=1 && slot<=static_cast<int>(preset_bank::slotCount) &&
+        preset_bank::presets[slot-1].values && preset_bank::presets[slot-1].count!=0;
+}
+static int selectablePreset(int requested,int previous) {
+    if(requested==0 || activePreset(requested)) return requested;
+    const int direction=requested>previous ? 1 : -1;
+    for(int slot=requested+direction;slot>=1 && slot<=static_cast<int>(preset_bank::slotCount);slot+=direction)
+        if(activePreset(slot)) return slot;
+    return 0;
+}
 static void applyPreset(Algorithm* self,int selected) {
-    if(selected<1 || selected>static_cast<int>(preset_bank::count)) return;
+    if(!activePreset(selected)) return;
     const auto& preset=preset_bank::presets[selected-1];
     std::uint64_t send=0;
     self->applyingPreset=true;
@@ -395,6 +441,8 @@ static void applyPreset(Algorithm* self,int selected) {
     }
     self->observedPreset=selected;
     self->observedVersion=value(self,Version);
+    self->observedDestinations[0]=value(self,Mod1Destination);
+    self->observedDestinations[1]=value(self,Mod2Destination);
     self->pendingVoicing=-1;
     updateControls(self);updatePages(self,value(self,Model),true);
     for(int p=0;p<ParameterCount;++p) if(send&(std::uint64_t(1)<<p)) setHostParameter(self,p,self->sentValues[p]);
@@ -427,8 +475,10 @@ void parameterChanged(_NT_algorithm* base, int p) {
     if(p==FactoryPreset) {
         if(self->initialControls) self->observedPreset=raw;
         else if(raw!=self->observedPreset) {
-            self->observedPreset=raw;
-            if(raw!=0) { applyPreset(self,raw);return; }
+            const int selected=selectablePreset(raw,self->observedPreset);
+            self->observedPreset=selected;
+            if(selected!=raw) requestParameter(self,FactoryPreset,selected);
+            if(selected!=0) { applyPreset(self,selected);return; }
         }
     } else if(!self->initialControls && !self->applyingPreset && !keepsPresetName(p) && self->observedPreset!=0) {
         self->observedPreset=0;
@@ -443,6 +493,14 @@ void parameterChanged(_NT_algorithm* base, int p) {
             self->pendingVoicing=selected ? 3 : 0;
             requestParameter(self,Voicing,self->pendingVoicing);
         } else if(self->initialControls) self->observedVersion=selected;
+    }
+    if(p==Mod1Destination || p==Mod2Destination) {
+        const int slot=p==Mod1Destination ? 0 : 1;
+        const int requested=value(self,p);
+        const int selected=self->initialControls || self->applyingPreset ? requested :
+            selectableDestination(self,requested,self->observedDestinations[slot]);
+        self->observedDestinations[slot]=selected;
+        if(selected!=requested) requestParameter(self,p,selected);
     }
     if(p==Voicing && value(self,Voicing)==self->pendingVoicing) self->pendingVoicing=-1;
     if(p==ClockBus) self->clock.clearCv();
@@ -489,6 +547,23 @@ bool draw(_NT_algorithm* base) {
     return false;
 }
 int parameterString(_NT_algorithm* base,int p,int v,char* buffer) {
+    if(p==Mod1Source || p==Mod2Source || p==Mod1Destination || p==Mod2Destination) {
+        const bool source=p==Mod1Source || p==Mod2Source;
+        const int choice=std::max(0,std::min(source ? 5 : 8,v));
+        const char* name=source ? sourceNames[choice] : destinationNames[choice];
+        int length=0;
+        while(*name && length<kNT_parameterStringSize-1) buffer[length++]=*name++;
+        const auto* self=static_cast<Algorithm*>(base);
+        const bool inactive=self && (source ?
+            (((choice==1 || choice==2) && value(self,ModulationEnabled)==0) ||
+             (choice==3 && value(self,CV1Bus)==0) || (choice==4 && value(self,CV2Bus)==0)) :
+            !meaningfulDestination(self,choice));
+        if(inactive) {
+            const char* suffix=" (off)";
+            while(*suffix && length<kNT_parameterStringSize-1) buffer[length++]=*suffix++;
+        }
+        buffer[length]=0;return length;
+    }
     if(p==TapPattern) {
         const auto* self=static_cast<Algorithm*>(base);
         const bool synced=self && self->clock.locked();

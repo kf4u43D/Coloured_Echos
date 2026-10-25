@@ -406,7 +406,8 @@ void Engine::processSample(float inL, float inR, float& outL, float& outR) noexc
     } else if (target_.model == Model::DigitalRack || target_.model == Model::EchoPlatter || target_.model == Model::StereoDelays) {
         rack::Controls controls;
         controls.delaySamples=delay;controls.feedback=feedback;controls.tonePole=tonePole;controls.drive=drive;
-        controls.modDepthSamples=modDepth;controls.modPhase=modPhase_;
+        controls.modDepthSamples=target_.model == Model::EchoPlatter && !moving ? 0.0f : modDepth;
+        controls.modPhase=modPhase_;
         controls.stereoRatio=target_.stereo_ratio;controls.maximumSamples=maximumSamples_;
         controls.voicing=voicing_;
         const auto kind=target_.model == Model::DigitalRack ? rack::Kind::Digital24 :

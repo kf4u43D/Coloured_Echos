@@ -23,6 +23,8 @@ The default inputs are buses **1/2**, and the default outputs are **13/14**. Cho
 
 Select **Max delay** when adding the algorithm: 1 to 8 seconds, with a default of 3 seconds. Time stays within that capacity.
 
+For a mono source feeding a stereo delay, set **Input L** and **Input R** to the same source bus. Keep **Output L** and **Output R** on separate buses for stereo playback. Setting an input to None supplies silence to that channel; the Stereo model does not copy audio from the other input.
+
 ## Set the sound
 
 Choose a musical **Preset** on the Model page, or select **Custom** and a Model. A new instance starts with **Internal BPM at 120 BPM**. Then adjust **Time**, **Feedback** and **Mix**. Model-specific pages expose controls such as Tone, Drive, Mod rate/depth, tap pattern, sample rate, ducking or swell.
@@ -30,6 +32,8 @@ Choose a musical **Preset** on the Model page, or select **Custom** and a Model.
 **Sweep Down** uses a descending low-pass sweep; **Sweep Up** uses an ascending high-pass sweep. A new input phrase triggers each sweep, whose duration follows Mod rate.
 
 **Internal modulation** switches the internal LFO, wow, flutter and drift together. External CV and the MIDI modulation wheel remain available. Two mapping slots connect a modulation source to Time, Feedback, Tone, Drive, Mix, Depth, Exciter or the 8bit sample rate. Choose CV buses on the CV inputs page; a ±5 V signal spans the modulation range.
+
+Target selection skips controls that do not affect the current model. A saved mapping that is currently inactive shows **(off)** and retains its setting. CV sources also show (off) until their input bus is assigned; internal LFO and envelope sources need Internal modulation on. Selecting an LFO or envelope source exposes its rate or attack/release controls where needed. For the looper, Time sets the next recording length and Feedback controls overdub retention.
 
 The first **Delay** page shows **Time** in milliseconds in Free mode. With Internal BPM or a locked MIDI/CV clock, its first control becomes **Division**, using straight, dotted or triplet note values. The Clock page selects the clock source and internal tempo; CV also needs a Clock bus and pulses per quarter note. External clock waiting, Stop or more than two seconds without pulses returns the first control to manual Time.
 
@@ -45,4 +49,4 @@ For **Stereo Delays**, open **Stereo**. In sync, **Division** sets the left dela
 
 Loop Sampler provides **Record**, **Play**, **Overdub**, **Stop** and **Clear**. Time or Division sets the next recording length. Audio stays in memory only; saved presets do not contain the loop, and changing the model clears it.
 
-The [preset guide](PRESETS.md) describes the 19 recipes, including three polyrhythms. Preset changes retain active clock source, tempo, CV inputs and audio routing; selecting a recipe from Free enables Internal BPM. Applying a recipe resets its sound controls; editing a recipe control selects Custom.
+The [preset guide](PRESETS.md) describes the 17 recipes, including Stereo Weave's 3:2 rhythm. Preset changes retain active clock source, tempo, CV input buses and audio routing; selecting a recipe from Free enables Internal BPM. Applying a recipe resets its sound controls and modulation mappings; editing a recipe control selects Custom.

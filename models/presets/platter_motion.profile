@@ -1,15 +1,15 @@
-# 4 against 3
-# A four-against-three rhythmic echo pattern.
-# Two merged pulse grids share a whole-note feedback cycle.
+# Platter Motion
+# A moving disc-style echo with a dense, rounded repeat.
+# Quarter-note repeats with driven platter colour, 1 Hz modulation and 6 ms depth.
 sync_mode=internal
 tempo_bpm=120
-division=1/1
+division=1/4
 right_division=ratio
-model=multihead
-feedback=0.16
+model=platter
+feedback=0.18
 mix=0.39
-tone_hz=3900
-drive=0.08
+tone_hz=3200
+drive=0.4
 bit_depth=8
 mod_rate_hz=1
 mod_depth_ms=6
@@ -26,7 +26,7 @@ limiter_release_ms=150
 sample_rate_hz=8000
 exciter_amount=0.1
 exciter_tune_hz=4000
-tap_pattern=9
+tap_pattern=0
 mod1_source=0
 mod1_destination=0
 mod1_amount=0
@@ -41,7 +41,7 @@ lores_rate_decay_ms=1500
 lores_rate_envelope_amount=1
 digital_rack_rate_hz=16000
 lores_cutoff_hz=2000
-voicing=b06
+voicing=a04
 modulation_enabled=1
 exciter_highpass_enabled=0
 wet_tone_enabled=0

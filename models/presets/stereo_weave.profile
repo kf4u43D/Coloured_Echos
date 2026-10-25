@@ -1,15 +1,15 @@
-# 5 against 4
-# A dense five-against-four rhythmic echo pattern.
-# Two merged pulse grids share a whole-note feedback cycle.
+# Stereo Weave
+# Two independent echo rhythms form a stereo 3:2 pattern.
+# Quarter notes on the left and quarter-note triplets on the right; each side feeds itself.
 sync_mode=internal
 tempo_bpm=120
-division=1/1
-right_division=ratio
-model=multihead
-feedback=0.16
+division=1/4
+right_division=1/4T
+model=stereo
+feedback=0.32
 mix=0.39
-tone_hz=3300
-drive=0.08
+tone_hz=4400
+drive=0
 bit_depth=8
 mod_rate_hz=1
 mod_depth_ms=6
@@ -18,7 +18,7 @@ duck_amount=0.9
 attack_ms=5
 release_ms=250
 swell_ms=250
-stereo_ratio=1.5
+stereo_ratio=0.67
 loop_action=record
 limiter_enabled=1
 limiter_ceiling=0.891250938
@@ -26,7 +26,7 @@ limiter_release_ms=150
 sample_rate_hz=8000
 exciter_amount=0.1
 exciter_tune_hz=4000
-tap_pattern=10
+tap_pattern=0
 mod1_source=0
 mod1_destination=0
 mod1_amount=0
@@ -34,7 +34,7 @@ mod2_source=0
 mod2_destination=0
 mod2_amount=0
 feedback_lowpass_hz=12000
-drift_amount=0.25
+drift_amount=0
 feedback_highpass_hz=80
 lores_rate_end_hz=1200
 lores_rate_decay_ms=1500
@@ -42,6 +42,6 @@ lores_rate_envelope_amount=1
 digital_rack_rate_hz=16000
 lores_cutoff_hz=2000
 voicing=b06
-modulation_enabled=1
+modulation_enabled=0
 exciter_highpass_enabled=0
-wet_tone_enabled=0
+wet_tone_enabled=1

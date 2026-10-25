@@ -1,6 +1,6 @@
 # Analog Bounce
-# Dark, compact echoes around the dry phrase.
-# Dotted eighth notes with driven analog colour.
+# Rounded analog repeats around the dry phrase.
+# Dotted eighth notes with driven analog colour and a 3 kHz tone.
 sync_mode=internal
 tempo_bpm=120
 division=1/8D
@@ -8,8 +8,8 @@ right_division=ratio
 model=analog
 feedback=0.13
 mix=0.39
-tone_hz=2400
-drive=0.42
+tone_hz=3000
+drive=0.4
 bit_depth=8
 mod_rate_hz=1
 mod_depth_ms=6
@@ -34,7 +34,7 @@ mod2_source=0
 mod2_destination=0
 mod2_amount=0
 feedback_lowpass_hz=12000
-drift_amount=0
+drift_amount=0.25
 feedback_highpass_hz=80
 lores_rate_end_hz=1200
 lores_rate_decay_ms=1500
@@ -42,6 +42,6 @@ lores_rate_envelope_amount=1
 digital_rack_rate_hz=16000
 lores_cutoff_hz=2000
 voicing=a04
-modulation_enabled=0
+modulation_enabled=1
 exciter_highpass_enabled=0
 wet_tone_enabled=0

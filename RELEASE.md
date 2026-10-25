@@ -1,6 +1,6 @@
 # EchoLabNT
 
-A stereo delay collection for Expert Sleepers disting NT, with 20 treatments, 19 musical presets, eleven multi-head patterns, reverse delay, ducking, auto-volume, a loop sampler, CV modulation and MIDI/CV clock synchronization.
+A stereo delay collection for Expert Sleepers disting NT, with 20 treatments, 17 musical presets, eleven multi-head patterns, reverse delay, ducking, auto-volume, a loop sampler, CV modulation and MIDI/CV clock synchronization.
 
 Target: disting NT firmware 1.18.0 / API 13.
 
@@ -12,4 +12,4 @@ Back up existing presets and plug-in files before replacing them. Keep a single 
 
 The archive includes [installation instructions](docs/INSTALL_NT.md), renderer profiles and file checksums.
 
-The internal clock starts at 120 BPM. The [preset guide](docs/PRESETS.md) covers rhythmic echoes, swells, ducking, slapback and polyrhythms.
+The internal clock starts at 120 BPM. The [preset guide](docs/PRESETS.md) covers driven analog echoes, moving tape and platter repeats, descending 8bit textures, swells, ducking, slapback and Stereo Weave's left/right 3:2 rhythm.
