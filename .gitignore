@@ -8,6 +8,7 @@
 /reference/
 /docs/*
 !/docs/INSTALL_NT.md
+!/docs/PRESETS.md
 /models/registry.json
 /models/README.md
 /models/profiles/

@@ -53,7 +53,8 @@ struct Instance {
     std::vector<uint8_t> sram, dram;
     std::vector<int16_t> values;
     _NT_algorithm* self;
-    explicit Instance(int32_t seconds = 1, bool limiterEnabled = false,int legacyVoice=0,int productVersion=0,bool reverseCallbacks=false) {
+    explicit Instance(int32_t seconds = 1, bool limiterEnabled = false,int legacyVoice=0,int productVersion=0,bool reverseCallbacks=false,
+                      bool freeClock=true,int loadedPreset=0) {
         calculateRequirements(req, &seconds);
         sram.resize(req.sram + 2, 0xad); dram.resize(req.dram + 2, 0xad);
         _NT_algorithmMemoryPtrs ptrs{sram.data()+1, dram.data()+1, nullptr, nullptr};
@@ -63,6 +64,8 @@ struct Instance {
         // Analytic fixtures disable musical gain reduction, keeping the guard.
         values[LimiterOn]=limiterEnabled ? 1 : 0;
         values[Voicing]=static_cast<int16_t>(legacyVoice);values[Version]=static_cast<int16_t>(productVersion);
+        values[SyncMode]=freeClock ? 0 : parameters[SyncMode].def;
+        values[FactoryPreset]=static_cast<int16_t>(loadedPreset);
         self->v = values.data();
         for (int i=0; i<ParameterCount; ++i) parameterChanged(self,reverseCallbacks ? ParameterCount-1-i : i);
     }
@@ -294,6 +297,7 @@ static void appendedControls() {
     i.set(FeedbackHPHz,125);i.set(LoResEndHz,900);i.set(LoResDecayMs,2300);i.set(LoResEnvelopeAmount,650);
     i.set(RackSampleRateHz,12000);
     i.set(LoResCutoffHz,1350);i.set(Voicing,3);i.set(ModulationEnabled,0);i.set(Mod1Destination,8);
+    i.set(ExciterHighpassOn,1);i.set(WetToneOn,1);
     const auto& p=static_cast<Algorithm*>(i.self)->engine.parameters();
     check(p.bit_depth==12 && p.loop_action==2,"integer controls reach shared core");
     near(p.mod_rate_hz,1.25f,"modulation rate hundredths"); near(p.mod_depth_ms,3.75f,"modulation depth hundredths");
@@ -309,6 +313,7 @@ static void appendedControls() {
     near(p.digital_rack_rate_hz,12000,"Rack sample rate has its own Hz field");
     near(p.lores_cutoff_hz,1350,"Lo Res wet low-pass has its own Hz field");
     check(p.voicing==3 && !p.modulation_enabled && p.mod1_destination==8,"voicing, modulation toggle and appended Fe destination reach core");
+    check(p.exciter_highpass_enabled && p.wet_tone_enabled,"optional Exciter return high-pass and wet Tone flags reach the shared core");
 }
 static bool pageHas(const _NT_algorithm* self,int parameter) {
     for(uint32_t page=0;page<self->parameterPages->numPages;++page) {
@@ -851,6 +856,142 @@ static void musicalTapPagesAndCapacity() {
     draw(instance.self);
     check(lastDrawText && !std::strstr(lastDrawText,"max delay"),"capacity warning clears when both note durations fit");
 }
+static void productionDefaultsAndOptionalColor() {
+    Instance production(3,false,0,0,false,false);
+    auto* state=static_cast<Algorithm*>(production.self);
+    check(production.values[SyncMode]==3 && state->clock.locked() &&
+          production.self->parameterPages->pages[0].params[0]==Division,
+          "a new production instance starts with editable musical divisions at Internal BPM");
+    near(state->controls.delay_ms,500,1e-5f,"the default 120 BPM quarter is a 500ms delay");
+    check(pageHas(production.self,FactoryPreset) && pageHas(production.self,WetToneOn) && !pageHas(production.self,Tone),
+          "the preset selector is usable and Digital initially hides inactive Tone");
+    const auto before=pageNotifications;production.set(WetToneOn,1);
+    check(pageHas(production.self,Tone) && pageNotifications==before+1 && state->controls.wet_tone_enabled,
+          "enabling wet Tone exposes its cutoff and updates the shared core");
+    production.set(WetToneOn,0);check(!pageHas(production.self,Tone),"disabling the optional filter hides Digital's inactive cutoff");
+    production.set(Model,17);
+    check(pageHas(production.self,ExciterHighpassOn) && !pageHas(production.self,FeedbackHPHz),
+          "native Exciter A exposes an opt-in return high-pass while preserving its old off state");
+    production.set(ExciterHighpassOn,1);production.set(FeedbackHPHz,300);
+    check(pageHas(production.self,FeedbackHPHz) && state->controls.exciter_highpass_enabled,
+          "the enabled Exciter return high-pass exposes its frequency");
+    near(state->controls.feedback_highpass_hz,300,0,"the curated 300Hz return cutoff reaches the shared core");
+    std::vector<float> buses(kNT_lastBus*128,0.0f);step(production.self,buses.data(),32);
+    production.set(Version,1);
+    check(!pageHas(production.self,ExciterHighpassOn),"the optional legacy return switch is hidden when the alternate version already has its return filters");
+}
+static bool recipeGlobal(int parameter) { return parameter==SyncMode || parameter==TempoBpm || parameter==ClockPpqn; }
+static void checkRecipe(const Instance& instance,const preset_bank::Preset& preset) {
+    const auto* state=static_cast<const Algorithm*>(instance.self);
+    for(unsigned i=0;i<preset.count;++i) if(!recipeGlobal(preset.values[i].parameter))
+        check(value(state,preset.values[i].parameter)==preset.values[i].value,"a recipe is exposed as one coherent set while host callbacks settle");
+    check(state->controls.model==static_cast<echolab::Model>(value(state,Model)) &&
+          state->controls.tap_pattern==value(state,TapPattern) &&
+          state->controls.exciter_highpass_enabled==(value(state,ExciterHighpassOn)!=0) &&
+          state->controls.wet_tone_enabled==(value(state,WetToneOn)!=0),"recipe flags, model and musical taps reach the shared core together");
+    near(state->controls.feedback,value(state,Feedback)*.001f,1e-6f,"recipe feedback matches its visible parameter");
+    near(state->controls.mix,value(state,Mix)*.001f,1e-6f,"recipe mix matches its visible parameter");
+}
+static void factoryPresetBank() {
+    for(bool deferred : {false,true}) for(unsigned selected=1;selected<=preset_bank::count;++selected) {
+        deferParameterWrites=deferred;queuedWrites.clear();
+        Instance instance(3,false,0,0,false,false);
+        instance.set(Time,731);instance.set(InputL,3);instance.set(CV1Bus,15);
+        std::vector<float> buses(kNT_lastBus*128,0.0f);step(instance.self,buses.data(),32);
+        instance.set(FactoryPreset,static_cast<int>(selected));
+        const auto& recipe=preset_bank::presets[selected-1];
+        auto* state=static_cast<Algorithm*>(instance.self);
+        checkRecipe(instance,recipe);
+        check(instance.values[Time]==731 && instance.values[InputL]==3 && instance.values[CV1Bus]==15,
+              "applying a sound recipe preserves manual fallback and audio/CV routing");
+        check(state->observedPreset==static_cast<int>(selected),"recipe callbacks retain the chosen preset name");
+        step(instance.self,buses.data(),32);checkRecipe(instance,recipe);
+        if(deferred) {
+            const auto writes=queuedWrites;queuedWrites.clear();
+            for(const auto& write:writes) { applyParameterWrite(write);checkRecipe(instance,recipe); }
+        }
+        flushParameterWrites();
+        check(state->pendingWrites==0 && instance.values[FactoryPreset]==static_cast<int>(selected),
+              "immediate and deferred host persistence settle without losing the preset identity");
+        instance.set(CV1Bus,16);instance.set(CV2Bus,17);
+        check(instance.values[FactoryPreset]==static_cast<int>(selected) && state->observedPreset==static_cast<int>(selected),
+              "manual CV input routing changes preserve the selected recipe name");
+        for(unsigned i=0;i<recipe.count;++i) if(!recipeGlobal(recipe.values[i].parameter))
+            check(instance.values[recipe.values[i].parameter]==recipe.values[i].value,"all curated recipe fields persist in host-owned preset memory");
+        const auto before=state->controls;
+        instance.set(FactoryPreset,0);
+        near(state->controls.feedback,before.feedback,0,"Custom leaves the selected sound untouched");
+        near(state->controls.drive,before.drive,0,"Custom never resets a recipe's drive");
+    }
+    deferParameterWrites=false;
+    {
+        Instance saved(3,false,1,0,true,true,2);
+        auto* state=static_cast<Algorithm*>(saved.self);
+        std::vector<float> buses(kNT_lastBus*128,0.0f);step(saved.self,buses.data(),32);
+        check(saved.values[FactoryPreset]==2 && state->controls.model==echolab::Model::Digital && state->controls.voicing==1,
+              "loading a saved preset name does not overwrite its stored model or legacy version");
+        near(state->controls.feedback,.28f,1e-6f,"saved parameter values take precedence over a loaded bank label");
+        saved.set(Mix,550);
+        check(saved.values[FactoryPreset]==0,"manual sound editing marks the recipe Custom");
+        near(state->controls.mix,.55f,1e-6f,"marking Custom preserves the actual user edit");
+    }
+    {
+        deferParameterWrites=true;queuedWrites.clear();
+        Instance edited(3,false,0,0,false,false);
+        std::vector<float> buses(kNT_lastBus*128,0.0f);step(edited.self,buses.data(),32);
+        edited.set(FactoryPreset,1);edited.set(Feedback,777);
+        auto* state=static_cast<Algorithm*>(edited.self);
+        near(state->controls.feedback,.777f,1e-6f,"a manual edit during a deferred recipe takes effect immediately");
+        flushParameterWrites();
+        check(edited.values[FactoryPreset]==0 && edited.values[Feedback]==777 && state->pendingWrites==0,
+              "late recipe acknowledgements cannot overwrite a newer manual edit");
+        near(state->controls.feedback,.777f,1e-6f,"the user's sound survives deferred recipe persistence");
+        edited.set(FactoryPreset,2);edited.set(FactoryPreset,3);
+        flushParameterWrites();checkRecipe(edited,preset_bank::presets[2]);
+        check(edited.values[FactoryPreset]==3 && state->pendingWrites==0,
+              "rapid recipe changes coalesce to the newest selection without partial intermediate sounds");
+        deferParameterWrites=false;
+    }
+}
+static void recipesPreserveLiveClock() {
+    for(bool deferred : {false,true}) for(int tempo : {120,90}) {
+        deferParameterWrites=deferred;queuedWrites.clear();
+        Instance free(3);
+        auto* freeState=static_cast<Algorithm*>(free.self);
+        free.set(Time,731);free.set(TempoBpm,tempo);
+        std::vector<float> freeBuses(kNT_lastBus*4,0.0f);step(free.self,freeBuses.data(),1);
+        near(freeState->controls.delay_ms,731,0,"a saved Free instance retains its manual delay until a recipe is selected");
+        free.set(FactoryPreset,1);
+        check(freeState->clock.mode()==3 && freeState->clock.locked() && value(freeState,SyncMode)==3,
+              "selecting a musical recipe from Free activates Internal BPM as part of the complete batch");
+        near(freeState->controls.delay_ms,60000.0f/tempo,1e-4f,"the recipe's quarter note follows the user's retained tempo");
+        flushParameterWrites();
+        check(free.values[SyncMode]==3 && free.values[TempoBpm]==tempo && free.values[Time]==731,
+              "Internal activation persists without changing tempo or the remembered millisecond fallback");
+    }
+    deferParameterWrites=false;
+    Instance internal(3,false,0,0,false,false);
+    std::vector<float> buses(kNT_lastBus*4,0.0f);step(internal.self,buses.data(),1);
+    internal.set(TempoBpm,90);internal.set(FactoryPreset,2);
+    auto* state=static_cast<Algorithm*>(internal.self);
+    check(internal.values[TempoBpm]==90 && internal.values[SyncMode]==3,"a recipe keeps the user's internal tempo and clock source");
+    near(state->controls.delay_ms,60000.0f/90*.75f,1e-4f,"the selected dotted note follows the retained internal tempo");
+    internal.set(SyncMode,1);midiRealtime(internal.self,0xfa);midiRealtime(internal.self,0xf8);
+    for(int block=0;block<250;++block) step(internal.self,buses.data(),1);
+    midiRealtime(internal.self,0xf8);step(internal.self,buses.data(),1);
+    check(state->clock.locked(),"MIDI fixture acquires an external clock before selecting a recipe");
+    internal.set(FactoryPreset,1);
+    check(state->clock.locked() && internal.values[SyncMode]==1 && internal.values[TempoBpm]==90,
+          "a bank recipe preserves live MIDI clock lock and the remembered internal tempo");
+    internal.set(SyncMode,2);internal.set(ClockBus,3);internal.set(ClockPpqn,0);
+    buses[8]=5;step(internal.self,buses.data(),1);buses[8]=0;
+    for(int block=0;block<5999;++block) step(internal.self,buses.data(),1);
+    buses[8]=5;step(internal.self,buses.data(),1);buses[8]=0;
+    check(state->clock.locked(),"CV fixture acquires a clock before the recipe change");
+    internal.set(FactoryPreset,4);
+    check(state->clock.locked() && internal.values[SyncMode]==2 && internal.values[ClockPpqn]==0 && internal.values[ClockBus]==3,
+          "recipes retain the CV clock source, pulse rate, bus and lock");
+}
 int main() {
     try {
         check(pluginEntry(kNT_selector_version,0)==13,"firmware 1.18 API 13 compatibility");
@@ -858,8 +999,8 @@ int main() {
         check(pluginEntry(kNT_selector_factoryInfo,1)==0,"invalid factory index");
         const auto* f = reinterpret_cast<const _NT_factory*>(pluginEntry(kNT_selector_factoryInfo,0));
         check(f && f->guid == NT_MULTICHAR('E','L','n','t'),"stable GUID");
-        check(std::strcmp(f->name,"Coloured_Echos")==0,"exact displayed project name");
-        static_assert(Model==6 && Time==7 && Bypass==12 && BitDepth==13 && LoopAction==22 && LimiterOn==23 && Division==42 && FeedbackLPHz==43 && Drift==44 && FeedbackHPHz==45 && LoResEndHz==46 && LoResDecayMs==47 && LoResEnvelopeAmount==48 && RackSampleRateHz==49 && LoResCutoffHz==50 && Voicing==51 && ModulationEnabled==52 && Version==53 && RightDivision==54 && ParameterCount==55,"published parameter IDs remain stable; controls appended");
+        check(std::strcmp(f->name,"EchoLabNT")==0,"exact displayed project name");
+        static_assert(Model==6 && Time==7 && Bypass==12 && BitDepth==13 && LoopAction==22 && LimiterOn==23 && Division==42 && FeedbackLPHz==43 && Drift==44 && FeedbackHPHz==45 && LoResEndHz==46 && LoResDecayMs==47 && LoResEnvelopeAmount==48 && RackSampleRateHz==49 && LoResCutoffHz==50 && Voicing==51 && ModulationEnabled==52 && Version==53 && RightDivision==54 && FactoryPreset==55 && ExciterHighpassOn==56 && WetToneOn==57 && ParameterCount==58,"published parameter IDs remain stable; controls appended");
         check(parameters[Model].max==19 && parameters[Model].def==0 && ARRAY_SIZE(modelNames)==20,
               "20 selectors without changing existing model IDs");
         check(parameters[Feedback].def==280 && echolab::Parameters{}.feedback==.28f &&
@@ -869,7 +1010,10 @@ int main() {
               parameters[FeedbackLPHz].def==12000 && parameters[Drift].def==250 && parameters[FeedbackHPHz].def==80 &&
               parameters[LoResEndHz].def==1200 && parameters[LoResDecayMs].def==1500 && parameters[LoResEnvelopeAmount].def==1000 && parameters[RackSampleRateHz].def==16000 &&
               parameters[LoResCutoffHz].def==2000 && parameters[Voicing].def==0 && parameters[ModulationEnabled].def==1 &&
-              parameters[Version].min==0 && parameters[Version].max==1 && parameters[Version].def==0 && parameters[RightDivision].def==0,
+              parameters[Version].min==0 && parameters[Version].max==1 && parameters[Version].def==0 && parameters[RightDivision].def==0 &&
+              parameters[SyncMode].def==3 && parameters[TempoBpm].def==120 && parameters[Division].def==2 &&
+              parameters[FactoryPreset].def==0 && parameters[FactoryPreset].max==static_cast<int>(preset_bank::count) &&
+              parameters[ExciterHighpassOn].def==0 && parameters[WetToneOn].def==0 && parameters[TapPattern].max==10,
               "published musical defaults, Lo Res envelope and -1dB NT maximum");
         check(std::strcmp(modelNames[8],"Sweep Down (provisional)")==0 && std::strcmp(modelNames[18],"Sweep Up (provisional)")==0,
               "Sweep Down keeps ID8 and Sweep Up appends ID18");
@@ -889,7 +1033,7 @@ int main() {
         for(int model=0;model<echolab::modelCount;++model) sharedCoreAndInstances(model);
         statefulModelAliases(); analyticalNewModelRouting(); bypassAndNonfinite(); appendedControls();
         dynamicPagesAndControls();musicalTapPagesAndCapacity();finalBusLimiter();singleMusicalStage();clockAndCvAliasing();timingPageFollowsClock();versionMigrationAndSelection();synchronizedStereoNotes();modulationCvAliasing();depthCvAndWheelRouting();
-        digitalRackInternalRate();loresFeMappings();firstPresetLoopLength();
+        digitalRackInternalRate();loresFeMappings();firstPresetLoopLength();productionDefaultsAndOptionalColor();factoryPresetBank();recipesPreserveLiveClock();
         check(hostParameterErrors==0,"host parameter writes use valid algorithms, ranges and the required parameter offset");
         std::cout << "NT adapter: complete catalog, appended controls, analytical ping-pong/multi-head, stateful bus aliases, modes, None, bounds, instance isolation, core parity passed\n";
         return 0;

@@ -118,7 +118,7 @@ def compare(output: Path, expected: np.ndarray) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--renderer", type=Path, default=ROOT / "build/host/Release/coloured_echos_render.exe")
+    parser.add_argument("--renderer", type=Path, default=ROOT / "build/host/Release/echolabnt_render.exe")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "output/synthetic_fixture/new_models")
     args = parser.parse_args(argv)
     try:

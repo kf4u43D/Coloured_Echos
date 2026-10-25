@@ -113,6 +113,8 @@ void Engine::setParameters(const Parameters& p) noexcept {
     target_.model=requestedModel >= 0 && requestedModel < modelCount ? p.model : Model::Digital;
     target_.voicing=std::max(0,std::min(3,p.voicing));
     target_.modulation_enabled=p.modulation_enabled;
+    target_.exciter_highpass_enabled=p.exciter_highpass_enabled;
+    target_.wet_tone_enabled=p.wet_tone_enabled;
     voicing_=resolvedVoicing(target_.model,target_.voicing);
     target_.bit_depth=std::max(4,std::min(24,p.bit_depth));
     target_.mod_rate_hz=bounded(p.mod_rate_hz,0.01f,20.0f,1.0f);
@@ -178,7 +180,7 @@ void Engine::setParameters(const Parameters& p) noexcept {
         reverse_.reset();looper_.reset();rack_.reset();exciter_.reset();saturator_.reset();feedbackLowpass_.reset();
         loresPhase_=1.0f;loresHeld_[0]=loresHeld_[1]=0.0f;
         modPhase_=flutterPhase_=detector_=swellGain_=0.0f;swellGate_=false;
-        for (unsigned c=0;c<2;++c) extraFilter1_[c]=extraFilter2_[c]=0.0f;
+        for (unsigned c=0;c<2;++c) extraFilter1_[c]=extraFilter2_[c]=wetTone_[c]=0.0f;
         driftPhase_[0]=0.17f;driftPhase_[1]=0.43f;driftPhase_[2]=0.71f;
         a04Color_.reset();tubeColor_.reset();regenerator_.reset();
         exciterA04_.reset();exciterA05_.reset();
@@ -219,7 +221,7 @@ void Engine::reset() noexcept {
     exciterA04_.reset();exciterA05_.reset();
     phraseEnvelope_=loresRateEnvelope_=loresRateEnvelopeError_=sweepProgress_=sweepProgressError_=0;phraseGate_=false;
     for (unsigned c=0;c<2;++c) feedbackHighpassInput_[c]=feedbackHighpassOutput_[c]=0;
-    for (unsigned c=0;c<2;++c) extraFilter1_[c]=extraFilter2_[c]=0.0f;
+    for (unsigned c=0;c<2;++c) extraFilter1_[c]=extraFilter2_[c]=wetTone_[c]=0.0f;
     for (unsigned c = 0; c != 2; ++c)
         filter1_[c] = filter2_[c] = dcInput_[c] = dcOutput_[c] = 0.0f;
 }
@@ -317,6 +319,13 @@ void Engine::processSample(float inL, float inR, float& outL, float& outR) noexc
     const float drive=bounded((drive_+routed[4])*(1.0f+0.01f*playbackDrift*driftWave[2]),0.0f,1.0f,drive_);
     const float baseMix=bounded(mix_+routed[5],0.0f,1.0f,mix_);
     const float mix=bounded(baseMix+0.002f*playbackDrift*driftWave[1]*4.0f*baseMix*(1.0f-baseMix),0.0f,1.0f,baseMix);
+    const auto mixWet=[this,&input,mix,tonePole](unsigned channel,float wet) noexcept {
+        if(target_.wet_tone_enabled) {
+            wetTone_[channel]+=(1.0f-tonePole)*(wet-wetTone_[channel]);
+            wet=wetTone_[channel];
+        }
+        return finiteSignal((1.0f-mix)*input[channel]+mix*wet);
+    };
     const float modDepth=bounded((modDepth_+sampleRate_*0.020f*routed[6])*(1.0f+0.02f*playbackDrift*driftWave[0]),0.0f,maximumModDepth_,modDepth_);
     const float effectiveModRate=modRate_*(1.0f+0.02f*playbackDrift*driftWave[1])*(target_.model == Model::AnalogMod && voicing_ != 1 ? 0.72f : 1.0f);
     const float feedbackCutoffMod=drift*driftWave[2];
@@ -333,15 +342,17 @@ void Engine::processSample(float inL, float inR, float& outL, float& outR) noexc
     const bool digitalControl=target_.model == Model::Digital;
     const float digitalColourBlend=bounded(10.0f*(feedback-1.0f),0.0f,1.0f,0.0f);
     const auto feedbackFilter=[this,feedbackCutoffMod,feedbackCompensation,feedback,digitalControl,digitalColourBlend](unsigned channel,float value) noexcept {
-        if (voicing_ == 1 || (voicing_ == 2 && digitalControl)) return value;
+        const bool exciterHighpass=voicing_ == 1 && target_.model == Model::ExciterEcho && target_.exciter_highpass_enabled;
+        if ((voicing_ == 1 && !exciterHighpass) || (voicing_ == 2 && digitalControl)) return value;
         const float unfiltered=value;
-        if (voicing_ == 3 && target_.feedback_highpass_hz != 0) {
+        if ((voicing_ == 3 || exciterHighpass) && target_.feedback_highpass_hz != 0) {
             const float nominal=feedbackHighpassPole_[1];
             const float pole=feedbackCutoffMod >= 0 ? nominal+feedbackCutoffMod*(feedbackHighpassPole_[2]-nominal) :
                 nominal-feedbackCutoffMod*(feedbackHighpassPole_[0]-nominal);
             const float highpassed=0.5f*(1.0f+pole)*(value-feedbackHighpassInput_[channel])+pole*feedbackHighpassOutput_[channel];
             feedbackHighpassInput_[channel]=value;feedbackHighpassOutput_[channel]=highpassed;value=highpassed;
         }
+        if(exciterHighpass) return value;
         value=feedbackLowpass_.process(value,channel,feedbackCutoffMod);
         if (digitalControl) {
             // Keep filter histories warm below unity without changing a single
@@ -390,8 +401,8 @@ void Engine::processSample(float inL, float inR, float& outL, float& outR) noexc
         if (target_.model == Model::Reverse)
             reverse_.process(input[0],input[1],feedback,memory_,length_,routedFrames,segmentFadeFrames_,wetL,wetR,feedbackFilter);
         else looper_.process(input[0],input[1],target_.loop_action,feedback,memory_,length_,routedFrames,wetL,wetR,feedbackFilter);
-        output[0]=finiteSignal((1.0f-mix)*input[0]+mix*wetL);
-        output[1]=finiteSignal((1.0f-mix)*input[1]+mix*wetR);
+        output[0]=mixWet(0,wetL);
+        output[1]=mixWet(1,wetR);
     } else if (target_.model == Model::DigitalRack || target_.model == Model::EchoPlatter || target_.model == Model::StereoDelays) {
         rack::Controls controls;
         controls.delaySamples=delay;controls.feedback=feedback;controls.tonePole=tonePole;controls.drive=drive;
@@ -403,8 +414,8 @@ void Engine::processSample(float inL, float inR, float& outL, float& outR) noexc
         const auto frame=rack_.process(kind,input[0],input[1],controls,
             [this](unsigned channel,float tap) noexcept { return readDelay(channel,tap); },feedbackFilter);
         memory_[write_]=loopGuard(frame.writeL,feedback);memory_[length_+write_]=loopGuard(frame.writeR,feedback);
-        output[0]=finiteSignal((1.0f-mix)*input[0]+mix*frame.wetL);
-        output[1]=finiteSignal((1.0f-mix)*input[1]+mix*frame.wetR);
+        output[0]=mixWet(0,frame.wetL);
+        output[1]=mixWet(1,frame.wetR);
     } else if (target_.model == Model::PingPong) {
         // Mono excitation starts on the left; only the feedback crosses sides.
         // Read both taps before writing so the matrix has no order dependence.
@@ -413,8 +424,8 @@ void Engine::processSample(float inL, float inR, float& outL, float& outR) noexc
         const float mono = 0.5f * (input[0] + input[1]);
         memory_[write_] = loopGuard(mono + feedback * feedbackFilter(1,delayedR),feedback);
         memory_[length_ + write_] = loopGuard(feedback * feedbackFilter(0,delayedL),feedback);
-        output[0] = finiteSignal((1.0f-mix) * input[0] + mix * delayedL);
-        output[1] = finiteSignal((1.0f-mix) * input[1] + mix * delayedR);
+        output[0] = mixWet(0,delayedL);
+        output[1] = mixWet(1,delayedR);
     } else for (unsigned c = 0; c != 2; ++c) {
         float modelDelay=delay+wow;
         if (target_.model == Model::Tape)
@@ -491,7 +502,7 @@ void Engine::processSample(float inL, float inR, float& outL, float& outR) noexc
         if (target_.model == Model::LoRes && voicing_ == 3 && target_.lores_cutoff_hz != 0) {
             filter1_[c]+=(1-loresCutoffPole_)*(wet-filter1_[c]);wet=filter1_[c];
         }
-        output[c] = finiteSignal((1.0f - mix) * input[c] + mix * (wetGain*wet));
+        output[c] = mixWet(c,wetGain*wet);
     }
     outL = output[0];
     outR = output[1];

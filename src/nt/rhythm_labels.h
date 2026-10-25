@@ -47,11 +47,11 @@ inline void fraction(Text& text,unsigned numerator,unsigned denominator,bool syn
 }
 
 inline unsigned spanUnits(float offset) noexcept {
-    return static_cast<unsigned>(offset*24.0f+0.5f);
+    return static_cast<unsigned>(offset*120.0f+0.5f);
 }
 
 inline bool rationalSpan(float offset) noexcept {
-    const float error=offset*24.0f-static_cast<float>(spanUnits(offset));
+    const float error=offset*120.0f-static_cast<float>(spanUnits(offset));
     return error>=-0.0001f && error<=0.0001f;
 }
 
@@ -76,7 +76,9 @@ inline std::size_t formatTapPattern(int pattern,bool synced,int division,char* b
     using namespace rhythm_labels_detail;
     Text text(buffer,capacity);
     const unsigned index=pattern>=0 && pattern<static_cast<int>(echolab::multitap::patternCount) ? static_cast<unsigned>(pattern) : 0;
-    static constexpr const char* names[]={"Triplet","Four","Binary","Dotted","Golden","Gallop","Cluster","Single"};
+    static constexpr const char* names[]={"Triplet","Four","Binary","Dotted","Golden","Gallop","Cluster","Single",
+                                          "Poly 3:2","Poly 4:3","Poly 5:4"};
+    static_assert(sizeof(names)/sizeof(names[0])==echolab::multitap::patternCount,"each tap pattern needs a bounded UI label");
     const auto& taps=echolab::multitap::pattern(index);
     bool rational=true;
     for(unsigned head=0;head<taps.count;++head) rational=rational && rationalSpan(taps.taps[head].offset);
@@ -86,8 +88,8 @@ inline std::size_t formatTapPattern(int pattern,bool synced,int division,char* b
         if(head) text.append(' ');
         const float offset=taps.taps[head].offset;
         if(!rational) spanMultiplier(text,offset);
-        else if(synced) fraction(text,quarterUnits*spanUnits(offset),12*24*4,true);
-        else fraction(text,spanUnits(offset),24,false);
+        else if(synced) fraction(text,quarterUnits*spanUnits(offset),12*120*4,true);
+        else fraction(text,spanUnits(offset),120,false);
     }
     if(!synced || !rational) text.append(" span");
     return text.size();

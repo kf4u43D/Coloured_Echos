@@ -3,8 +3,9 @@
 namespace echolab { namespace multitap {
 
 struct Tap { float offset; float gain; };
-struct Pattern { const char* name; unsigned count; Tap taps[4]; };
-inline constexpr unsigned patternCount = 8;
+inline constexpr unsigned tapCapacity = 8;
+struct Pattern { const char* name; unsigned count; Tap taps[tapCapacity]; };
+inline constexpr unsigned patternCount = 11;
 inline constexpr Pattern patterns[patternCount] = {
     {"Legacy triplet", 3, {{1.0f/3.0f,1.0f/3.0f},{2.0f/3.0f,1.0f/3.0f},{1,1.0f/3.0f},{1,0}}},
     {"Quarter train", 4, {{0.25f,0.25f},{0.5f,0.25f},{0.75f,0.25f},{1,0.25f}}},
@@ -13,7 +14,18 @@ inline constexpr Pattern patterns[patternCount] = {
     {"Golden", 3, {{0.382f,1.0f/3.0f},{0.618f,1.0f/3.0f},{1,1.0f/3.0f},{1,0}}},
     {"Gallop", 3, {{0.25f,0.25f},{0.75f,0.25f},{1,0.5f},{1,0}}},
     {"Clustered", 3, {{0.75f,0.25f},{0.875f,0.25f},{1,0.5f},{1,0}}},
-    {"Singleton", 1, {{1,1},{1,0},{1,0},{1,0}}}
+    {"Singleton", 1, {{1,1},{1,0},{1,0},{1,0}}},
+    // Merge two uniform pulse grids over one feedback cycle. The common
+    // endpoint contains both pulses; normalization keeps their total gain at1.
+    {"Polyrhythm 3:2", 4, {{1.0f/3.0f,1.0f/5.0f},{1.0f/2.0f,1.0f/5.0f},
+                           {2.0f/3.0f,1.0f/5.0f},{1,2.0f/5.0f}}},
+    {"Polyrhythm 4:3", 6, {{1.0f/4.0f,1.0f/7.0f},{1.0f/3.0f,1.0f/7.0f},
+                           {1.0f/2.0f,1.0f/7.0f},{2.0f/3.0f,1.0f/7.0f},
+                           {3.0f/4.0f,1.0f/7.0f},{1,2.0f/7.0f}}},
+    {"Polyrhythm 5:4", 8, {{1.0f/5.0f,1.0f/9.0f},{1.0f/4.0f,1.0f/9.0f},
+                           {2.0f/5.0f,1.0f/9.0f},{1.0f/2.0f,1.0f/9.0f},
+                           {3.0f/5.0f,1.0f/9.0f},{3.0f/4.0f,1.0f/9.0f},
+                           {4.0f/5.0f,1.0f/9.0f},{1,2.0f/9.0f}}}
 };
 
 constexpr const Pattern& pattern(unsigned index) noexcept { return patterns[index < patternCount ? index : 0]; }

@@ -3,25 +3,25 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $version = ([IO.File]::ReadAllText((Join-Path $root 'VERSION'))).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') { throw 'Invalid VERSION.' }
 & (Join-Path $PSScriptRoot 'build_nt.ps1')
-$out = Join-Path $root ('dist/Coloured_Echos-public-' + $version)
+$out = Join-Path $root ('dist/EchoLabNT-public-' + $version)
 New-Item -ItemType Directory -Path $out -Force | Out-Null
-$packageFiles = @('coloured_echos.o', 'README.md', 'RELEASE.md', 'docs/INSTALL_NT.md', 'SDK_LICENSE.txt')
-foreach ($name in @('README.md', 'RELEASE.md', 'docs/INSTALL_NT.md')) {
+$packageFiles = @('echolabnt.o', 'README.md', 'RELEASE.md', 'docs/INSTALL_NT.md', 'docs/PRESETS.md', 'SDK_LICENSE.txt')
+foreach ($name in @('README.md', 'RELEASE.md', 'docs/INSTALL_NT.md', 'docs/PRESETS.md')) {
     $destination = Join-Path $out $name
     New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination $destination -Force
 }
-Copy-Item -LiteralPath (Join-Path $root 'build/nt/coloured_echos.o') -Destination (Join-Path $out 'coloured_echos.o') -Force
+Copy-Item -LiteralPath (Join-Path $root 'build/nt/echolabnt.o') -Destination (Join-Path $out 'echolabnt.o') -Force
 Copy-Item -LiteralPath (Join-Path $root 'third_party/distingNT_API_1.18.0/LICENSE') -Destination (Join-Path $out 'SDK_LICENSE.txt') -Force
 New-Item -ItemType Directory -Path (Join-Path $out 'profiles') -Force | Out-Null
 foreach ($profile in @(Get-ChildItem -LiteralPath (Join-Path $root 'models/presets') -Filter '*.profile' -File | Sort-Object Name)) {
     Copy-Item -LiteralPath $profile.FullName -Destination (Join-Path $out ('profiles/' + $profile.Name)) -Force
     $packageFiles += 'profiles/' + $profile.Name
 }
-if ($packageFiles.Count -le 5) { throw 'No factory profiles found.' }
+if ($packageFiles.Count -le 6) { throw 'No factory profiles found.' }
 $checksums = $packageFiles | Sort-Object | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $out $_) -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_ }
 $checksums | Set-Content -LiteralPath (Join-Path $out 'SHA256SUMS.txt') -Encoding ascii
-$archiveName = 'Coloured_Echos-public-' + $version + '.zip'
+$archiveName = 'EchoLabNT-public-' + $version + '.zip'
 $archive = Join-Path $root ('dist/' + $archiveName)
 $archiveStream = [IO.File]::Open($archive, [IO.FileMode]::Create, [IO.FileAccess]::ReadWrite)
 $zip = [IO.Compression.ZipArchive]::new($archiveStream, [IO.Compression.ZipArchiveMode]::Create, $false)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Banc d'acquisition et analyse Coloured_Echos. Aucune simulation d'effet Python."""
+"""Banc d'acquisition et analyse EchoLabNT. Aucune simulation d'effet Python."""
 from __future__ import annotations
 import argparse
 from datetime import datetime, timezone

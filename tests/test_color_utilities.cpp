@@ -377,11 +377,12 @@ void musicalRegeneration() {
 
 void patterns() {
     using namespace echolab::multitap;
-    static_assert(patternCount==8,"eight patterns are published");
-    static_assert(tapCount(0)==3 && tapCount(1)==4 && tapCount(7)==1,"constexpr pattern sizes");
+    static_assert(patternCount==11 && tapCapacity==8,"eight legacy patterns and three static polyrhythm grids are published");
+    static_assert(tapCount(0)==3 && tapCount(1)==4 && tapCount(7)==1 && tapCount(8)==4 && tapCount(9)==6 && tapCount(10)==8,
+                  "legacy pattern sizes remain stable and polyrhythms merge both complete grids");
     for (unsigned patternIndex=0;patternIndex<patternCount;++patternIndex) {
         const auto& p=pattern(patternIndex);
-        check(p.name && p.name[0] && p.count>=1 && p.count<=4,"pattern has bounded name and tap count");
+        check(p.name && p.name[0] && p.count>=1 && p.count<=tapCapacity,"pattern has bounded name and tap count");
         float sum=0,previous=0;
         for (unsigned head=0;head<p.count;++head) {
             const auto t=tap(patternIndex,head);

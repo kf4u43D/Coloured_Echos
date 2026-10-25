@@ -1,5 +1,6 @@
 #include "wav.h"
 #include "sha256.h"
+#include "profile_timing.h"
 #include "dsp/engine.h"
 
 #include <algorithm>
@@ -54,7 +55,32 @@ std::size_t integer(const std::string& text) {
         throw std::runtime_error("Integer is too large: " + text);
     return static_cast<std::size_t>(result);
 }
-void assign(Parameters& p, const std::string& key, const std::string& value) {
+int noteDivision(const std::string& value) {
+    const char* longNames[]={"1/1","1/2","1/4","1/8","1/16","1/4 dotted","1/8 dotted","1/4 triplet","1/8 triplet","1/16 triplet"};
+    for(int division=0;division<10;++division)
+        if(value==echolab::host::divisionName(division) || value==longNames[division]) return division;
+    if(!value.empty() && value.find_first_not_of("0123456789")==std::string::npos) {
+        const auto division=integer(value);
+        if(division<10) return static_cast<int>(division);
+    }
+    throw std::runtime_error("division must be 1/1|1/2|1/4|1/8|1/16|1/4D|1/8D|1/4T|1/8T|1/16T or 0..9");
+}
+void assign(Parameters& p, const std::string& key, const std::string& value,echolab::host::ProfileTiming* timing=nullptr) {
+    if(timing) {
+        if(key=="sync_mode") {
+            if(value=="internal") timing->internal=true;
+            else if(value=="free" || value=="none" || value=="off") timing->internal=false;
+            else throw std::runtime_error("sync_mode must be internal or free");
+            timing->explicitSync=true;return;
+        }
+        if(key=="tempo_bpm") {
+            const double bpm=number(value);
+            if(bpm<30 || bpm>300) throw std::runtime_error("tempo_bpm must be 30..300");
+            timing->tempoBpm=bpm;return;
+        }
+        if(key=="division") { timing->division=noteDivision(value);return; }
+        if(key=="right_division") { timing->rightDivision=value=="ratio" ? -1 : noteDivision(value);return; }
+    }
     if(key=="mod1_source" || key=="mod2_source" || key=="mod1_destination" || key=="mod2_destination") {
         const char* sources[]={"none","lfo","envelope","cv1","cv2","wheel"};
         const char* destinations[]={"none","time","feedback","tone","drive","mix","depth","exciter","sample_rate"};
@@ -92,7 +118,7 @@ void assign(Parameters& p, const std::string& key, const std::string& value) {
     }
     const float parsed = static_cast<float>(number(value));
     if (!std::isfinite(parsed)) throw std::runtime_error("Parameter exceeds float range: " + key);
-    if (key == "delay_ms") { if (parsed <= 0 || parsed > 60000) throw std::runtime_error("delay_ms must be >0 and <=60000"); p.delay_ms = parsed; }
+    if (key == "delay_ms") { if (parsed <= 0 || parsed > 60000) throw std::runtime_error("delay_ms must be >0 and <=60000"); p.delay_ms = parsed; if(timing) timing->setManualDelay(parsed); }
     else if (key == "feedback") { if (parsed < 0 || parsed > 2) throw std::runtime_error("feedback must be 0..2 (200 percent)"); p.feedback = parsed; }
     else if (key == "mix") { if (parsed < 0 || parsed > 1) throw std::runtime_error("mix must be 0..1"); p.mix = parsed; }
     else if (key == "tone_hz") { if (parsed < 20 || parsed > 172800) throw std::runtime_error("tone_hz is outside 20..172800"); p.tone_hz = parsed; }
@@ -107,7 +133,7 @@ void assign(Parameters& p, const std::string& key, const std::string& value) {
         if (parsed < 1 || parsed > 10000) throw std::runtime_error(key+" must be 1..10000");
         if(key=="release_ms") p.release_ms=parsed; else p.swell_ms=parsed;
     }
-    else if (key == "stereo_ratio") { if (parsed < .25f || parsed > 4) throw std::runtime_error("stereo_ratio must be .25..4"); p.stereo_ratio=parsed; }
+    else if (key == "stereo_ratio") { if (parsed < .25f || parsed > 4) throw std::runtime_error("stereo_ratio must be .25..4"); p.stereo_ratio=parsed; if(timing) timing->manualStereoRatio=parsed; }
     else if (key == "limiter" || key == "limiter_enabled") { if(parsed!=0 && parsed!=1)throw std::runtime_error("limiter must be 0 or 1");p.limiter_enabled=parsed!=0; }
     else if (key == "limiter_ceiling") {if(parsed<.01f || parsed>1)throw std::runtime_error("limiter_ceiling must be .01..1");p.limiter_ceiling=parsed;}
     else if (key == "limiter_release_ms") {if(parsed<1 || parsed>2000)throw std::runtime_error("limiter_release_ms must be 1..2000");p.limiter_release_ms=parsed;}
@@ -122,12 +148,16 @@ void assign(Parameters& p, const std::string& key, const std::string& value) {
     else if (key == "lores_rate_decay_ms") {if(parsed<10 || parsed>10000)throw std::runtime_error("lores_rate_decay_ms must be 10..10000");p.lores_rate_decay_ms=parsed;}
     else if (key == "lores_rate_envelope_amount") {if(parsed<0 || parsed>1)throw std::runtime_error("lores_rate_envelope_amount must be 0..1");p.lores_rate_envelope_amount=parsed;}
     else if (key == "lores_cutoff_hz") {if(parsed<0 || (parsed>0 && parsed<20) || parsed>20000)throw std::runtime_error("lores_cutoff_hz must be 0 or 20..20000");p.lores_cutoff_hz=parsed;}
+    else if (key == "exciter_highpass_enabled" || key == "wet_tone_enabled") {
+        if(parsed!=0 && parsed!=1) throw std::runtime_error(key+" must be 0 or 1");
+        if(key=="exciter_highpass_enabled") p.exciter_highpass_enabled=parsed!=0;else p.wet_tone_enabled=parsed!=0;
+    }
     else if (key == "modulation_enabled") {if(parsed!=0 && parsed!=1)throw std::runtime_error("modulation_enabled must be 0 or 1");p.modulation_enabled=parsed!=0;}
-    else if (key == "tap_pattern") {if(parsed<0 || parsed>7 || std::floor(parsed)!=parsed)throw std::runtime_error("tap_pattern must be an integer 0..7");p.tap_pattern=static_cast<int>(parsed);}
+    else if (key == "tap_pattern") {if(parsed<0 || parsed>=echolab::multitap::patternCount || std::floor(parsed)!=parsed)throw std::runtime_error("tap_pattern must be an integer 0.."+std::to_string(echolab::multitap::patternCount-1));p.tap_pattern=static_cast<int>(parsed);}
     else if (key == "mod1_amount" || key == "mod2_amount") {if(parsed<-1 || parsed>1)throw std::runtime_error("modulation amount must be -1..1");if(key=="mod1_amount")p.mod1_amount=parsed;else p.mod2_amount=parsed;}
     else throw std::runtime_error("Unknown parameter: " + key);
 }
-void readProfile(const std::string& path, Parameters& p) {
+void readProfile(const std::string& path, Parameters& p,echolab::host::ProfileTiming& timing) {
     std::ifstream input(path);
     if (!input) throw std::runtime_error("Cannot open profile: " + path);
     std::string line;
@@ -138,7 +168,7 @@ void readProfile(const std::string& path, Parameters& p) {
         if (line.empty() || line[0] == '#') continue;
         const auto split = line.find('=');
         if (split == std::string::npos) throw std::runtime_error("Profile row " + std::to_string(row) + " requires key=value");
-        assign(p,trim(line.substr(0,split)),trim(line.substr(split+1)));
+        assign(p,trim(line.substr(0,split)),trim(line.substr(split+1)),&timing);
     }
 }
 struct Event { std::size_t sample; std::string parameter, value; };
@@ -148,12 +178,13 @@ float externalValue(const std::string& key,const std::string& value) {
     if(!std::isfinite(v) || v>(1.0f) || v<(key=="wheel"?0.0f:-1.0f))throw std::runtime_error("External modulation must be in normalized range");
     return v;
 }
-std::vector<Event> readEvents(const std::string& path, const Parameters& initial) {
+std::vector<Event> readEvents(const std::string& path, const Parameters& initial,const echolab::host::ProfileTiming& initialTiming,float maxDelayMs,unsigned sampleRate) {
     std::ifstream input(path);
     if (!input) throw std::runtime_error("Cannot open event CSV: " + path);
     std::vector<Event> events;
     std::string line;
     Parameters check = initial;
+    auto timing=initialTiming;
     std::size_t row = 0;
     while (std::getline(input,line)) {
         ++row; line = trim(line);
@@ -164,7 +195,8 @@ std::vector<Event> readEvents(const std::string& path, const Parameters& initial
             throw std::runtime_error("CSV row " + std::to_string(row) + " requires sample,param,value");
         Event e{integer(trim(line.substr(0,first))),trim(line.substr(first+1,second-first-1)),trim(line.substr(second+1))};
         if (!events.empty() && e.sample < events.back().sample) throw std::runtime_error("Events must be sorted by sample (equal times preserve CSV order)");
-        if(externalKey(e.parameter))externalValue(e.parameter,e.value);else assign(check,e.parameter,e.value);
+        if(externalKey(e.parameter))externalValue(e.parameter,e.value);
+        else { assign(check,e.parameter,e.value,&timing);timing.resolve(check,maxDelayMs,sampleRate); }
         events.push_back(std::move(e));
     }
     return events;
@@ -186,12 +218,16 @@ bool samePath(const std::string& a, const std::string& b) {
     return fs::absolute(a).lexically_normal() == fs::absolute(b).lexically_normal();
 }
 void help() {
-    std::cout << "Coloured_Echos offline renderer (provisional project algorithms)\n"
-        "Usage: coloured_echos_render --input excitation.wav --output render.wav [options]\n"
+    std::cout << "EchoLabNT offline renderer (provisional project algorithms)\n"
+        "Usage: echolabnt_render --input excitation.wav --output render.wav [options]\n"
         "  --model digital|analog|tube|pingpong|multihead|8bit|dynamic|tape|sweep\n"
         "          analogmod|digitalmod|reverse|autovolume|digitalrack|platter|stereo|looper|exciter|sweepup|tubea04\n"
         "          aliases: lores=8bit, ducking=dynamic; default digital\n"
-        "  --delay-ms N                  default 350, bounded by --max-delay-ms\n"
+        "  --sync-mode internal|free     default internal: 120 BPM, quarter note = 500 ms\n"
+        "  --tempo-bpm N                 30..300, default 120\n"
+        "  --division NOTE               default 1/4; 1/1|1/2|1/4|1/8|1/16|1/4D|1/8D|1/4T|1/8T|1/16T\n"
+        "  --right-division NOTE         Stereo right note, or ratio (default)\n"
+        "  --delay-ms N                  explicitly selects Free; manual fallback 350 ms, capacity bounded\n"
         "  --feedback N                  0..2 (200 percent), default .28\n"
         "  --mix N                       linear wet mix 0..1 (default 0.39)\n"
         "  --tone-hz N                   default 3500; effective maximum 0.45*Fs\n"
@@ -210,6 +246,8 @@ void help() {
         "  --limiter-ceiling N           .01..1, clamped to -1 dB; release default 150 ms\n"
         "  --sample-rate-hz N            8bit held sample rate, default 8000; 0=full Fs\n"
         "  --digital-rack-rate-hz N      Rack internal sample rate, default 16000; 0=full Fs\n"
+        "  --exciter-highpass-enabled 0|1 300 Hz Exciter high-pass, default off\n"
+        "  --wet-tone-enabled 0|1        wet Tone filtering, default off\n"
         "  --exciter-amount N            0..1, default .1; tune default 4000 Hz\n"
         "  --voicing NAME                auto|a04|a05|b06; auto selects preferred version\n"
         "  --modulation-enabled 0|1      internal LFO/wow/drift; CV/wheel stay active\n"
@@ -220,7 +258,7 @@ void help() {
         "  --lores-rate-decay-ms N       rate-envelope decay, default 1500\n"
         "  --lores-rate-envelope-amount N 0..1, default 1; onset starts descending Fs\n"
         "  --lores-cutoff-hz N           wet low-pass, default 2000; 0=bypass\n"
-        "  --tap-pattern N               0..7, eight multitap patterns\n"
+        "  --tap-pattern N               0.." << echolab::multitap::patternCount-1 << ", multitap rhythms\n"
         "  --mod1-source NAME            none|lfo|envelope|cv1|cv2|wheel (also mod2)\n"
         "  --mod1-destination NAME       none|time|feedback|tone|drive|mix|depth|exciter|sample_rate (fe)\n"
         "  --mod1-amount N               -1..1 (also mod2 destination/amount)\n"
@@ -253,9 +291,11 @@ int main(int argc, char** argv) {
             options.emplace_back(key,argv[++i]);
         }
         Parameters parameters;
+        echolab::host::ProfileTiming timing;
         std::string inputPath, outputPath, metadataPath, profilePath, eventsPath,cv1Path,cv2Path;
         for (const auto& option : options)
-            if (option.first == "--profile") { profilePath = option.second; readProfile(profilePath,parameters); }
+            if (option.first == "--profile") { profilePath = option.second; readProfile(profilePath,parameters,timing); }
+        timing.beginLayer();
         float maxDelayMs = 2500;
         double tailSeconds = 2;
         std::size_t block = 64;
@@ -270,13 +310,13 @@ int main(int argc, char** argv) {
             else if (key == "--max-delay-ms") maxDelayMs = static_cast<float>(number(value));
             else if (key == "--tail") tailSeconds = number(value);
             else if (key == "--block") block = integer(value);
-            else if (key == "--delay-ms") assign(parameters,"delay_ms",value);
-            else if (key == "--tone-hz") assign(parameters,"tone_hz",value);
-            else if (key == "--model" || key == "--feedback" || key == "--mix" || key == "--drive") assign(parameters,key.substr(2),value);
+            else if (key == "--delay-ms") assign(parameters,"delay_ms",value,&timing);
+            else if (key == "--tone-hz") assign(parameters,"tone_hz",value,&timing);
+            else if (key == "--model" || key == "--feedback" || key == "--mix" || key == "--drive") assign(parameters,key.substr(2),value,&timing);
             else if (key.rfind("--",0)==0) {
                 std::string parameter=key.substr(2);
                 std::replace(parameter.begin(),parameter.end(),'-','_');
-                assign(parameters,parameter,value);
+                assign(parameters,parameter,value,&timing);
             } else throw std::runtime_error("Unknown option: " + key);
         }
         if (inputPath.empty() || outputPath.empty()) throw std::runtime_error("--input and --output are required; see --help");
@@ -303,11 +343,13 @@ int main(int argc, char** argv) {
         echolab::Engine engine;
         if (!engine.prepare(static_cast<float>(input.sampleRate),maxDelayMs,memory.data(),memory.size()))
             throw std::runtime_error("DSP preparation failed");
+        timing.resolve(parameters,maxDelayMs,input.sampleRate);
         engine.setParameters(parameters);
         engine.reset();
         parameters = engine.parameters();
         const Parameters initial = parameters;
-        const auto events = eventsPath.empty() ? std::vector<Event>{} : readEvents(eventsPath,parameters);
+        const auto initialTiming=timing;
+        const auto events = eventsPath.empty() ? std::vector<Event>{} : readEvents(eventsPath,parameters,timing,maxDelayMs,input.sampleRate);
         const auto tailFrames = static_cast<std::size_t>(std::llround(tailSeconds * input.sampleRate));
         const auto frames = input.frames() + tailFrames;
         if (frames > (0xffffffffULL - 50) / 8) throw std::runtime_error("Rendered WAV would exceed RIFF size limit");
@@ -324,7 +366,7 @@ int main(int argc, char** argv) {
                 const float v=externalValue(e.parameter,e.value);
                 if(e.parameter=="cv1")cv1=v;else if(e.parameter=="cv2")cv2=v;else wheel=v;
                 engine.setExternalModulation(cv1,cv2,wheel);
-            } else {assign(parameters,e.parameter,e.value);engine.setParameters(parameters);}
+            } else {assign(parameters,e.parameter,e.value,&timing);timing.resolve(parameters,maxDelayMs,input.sampleRate);engine.setParameters(parameters);}
         };
         for (std::size_t begin = 0; begin < frames;) {
             const std::size_t end = std::min(frames,begin + block);
@@ -375,6 +417,16 @@ int main(int argc, char** argv) {
             << ",\n  \"block_frames\": " << block << ",\n  \"normalized\": false,\n  \"output_encoding\": \"float32\",\n"
             << "  \"mono_policy\": \"duplicate_to_stereo\",\n  \"max_delay_ms\": " << maxDelayMs
             << ",\n  \"delay_memory_bytes\": " << memory.size() * sizeof(float)
+            << ",\n  \"rhythm\": {\"sync_mode\": " << json(initialTiming.internal ? "internal" : "free")
+            << ", \"tempo_bpm\": " << initialTiming.tempoBpm
+            << ", \"division\": " << json(echolab::host::divisionName(initialTiming.division))
+            << ", \"right_division\": " << json(initialTiming.rightDivision<0 ? "ratio" : echolab::host::divisionName(initialTiming.rightDivision))
+            << ", \"requested_left_ms\": " << initialTiming.requestedLeftMs()
+            << ", \"effective_left_ms\": " << initial.delay_ms
+            << ", \"requested_right_ms\": " << (initial.model==echolab::Model::StereoDelays ? initialTiming.requestedRightMs() : initialTiming.requestedLeftMs())
+            << ", \"effective_right_ms\": " << (initial.model==echolab::Model::StereoDelays ? std::min(maxDelayMs,initial.delay_ms*initial.stereo_ratio) : initial.delay_ms)
+            << ", \"left_clipped\": " << (std::fabs(initialTiming.requestedLeftMs()-initial.delay_ms)>.001 ? "true" : "false")
+            << ", \"right_clipped\": " << (initial.model==echolab::Model::StereoDelays && std::fabs(initialTiming.requestedRightMs()-std::min(maxDelayMs,initial.delay_ms*initial.stereo_ratio))>.001 ? "true" : "false") << "}"
             << ",\n  \"resolved_voicing\": " << json(echolab::voicingName(echolab::resolvedVoicing(initial.model,initial.voicing)))
             << ",\n  \"parameters\": {\"model\": " << json(echolab::modelName(initial.model))
             << ", \"delay_ms\": " << initial.delay_ms << ", \"feedback\": " << initial.feedback
@@ -399,6 +451,8 @@ int main(int argc, char** argv) {
             << ", \"lores_rate_decay_ms\": " << initial.lores_rate_decay_ms
             << ", \"lores_rate_envelope_amount\": " << initial.lores_rate_envelope_amount
             << ", \"lores_cutoff_hz\": " << initial.lores_cutoff_hz
+            << ", \"exciter_highpass_enabled\": " << (initial.exciter_highpass_enabled ? "true" : "false")
+            << ", \"wet_tone_enabled\": " << (initial.wet_tone_enabled ? "true" : "false")
             << ", \"voicing\": " << initial.voicing
             << ", \"modulation_enabled\": " << (initial.modulation_enabled?"true":"false") << "}\n}\n";
         if (!metadata) throw std::runtime_error("Failed writing metadata");
@@ -408,7 +462,7 @@ int main(int argc, char** argv) {
             << "; normalization disabled; fidelity not qualified\n";
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "coloured_echos_render: " << error.what() << '\n';
+        std::cerr << "echolabnt_render: " << error.what() << '\n';
         return 1;
     }
 }

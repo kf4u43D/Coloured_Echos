@@ -63,6 +63,8 @@ struct Parameters {
     float lores_cutoff_hz = 2000.0f; // Wet reconstruction only, 0=bypass.
     int voicing = 0; // 0=model selection, 1=A04, 2=A05, 3=B06.
     bool modulation_enabled = true; // CV/wheel and functional envelopes remain.
+    bool exciter_highpass_enabled = false; // Opt-in A04 Exciter return HP; legacy presets stay unchanged.
+    bool wet_tone_enabled = false; // Optional output LP, separate from model/feedback filters.
 };
 
 struct ParameterEvent {
@@ -118,6 +120,7 @@ private:
     float phase_ = 0.0f;
     float filter1_[2]{};
     float filter2_[2]{};
+    float wetTone_[2]{};
     float dcInput_[2]{};
     float dcOutput_[2]{};
     float modPhase_ = 0.0f;

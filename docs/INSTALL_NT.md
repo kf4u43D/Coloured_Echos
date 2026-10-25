@@ -1,4 +1,4 @@
-# Coloured_Echos installation
+# EchoLabNT installation
 
 For Expert Sleepers disting NT, targeting firmware 1.18.0 / API 13.
 
@@ -6,9 +6,9 @@ For Expert Sleepers disting NT, targeting firmware 1.18.0 / API 13.
 
 1. Extract the release archive.
 2. Back up your presets and the existing plug-in file, if present.
-3. With the module powered off, copy `coloured_echos.o` to `/programs/plug-ins/` on its MicroSD card. Keep only one copy of this plug-in in that folder.
+3. With the module powered off, copy `echolabnt.o` to `/programs/plug-ins/` on its MicroSD card. Keep only one copy of this plug-in in that folder, replacing the previous file even if its filename differs.
 4. Safely eject the card, return it to the module and power on.
-5. Add **Coloured_Echos** from the algorithm menu.
+5. Add **EchoLabNT** from the algorithm menu.
 
 The archive's `SHA256SUMS.txt` lists file checksums. Its `.profile` files are settings for the computer renderer, rather than presets that can be loaded directly on the module.
 
@@ -25,7 +25,7 @@ Select **Max delay** when adding the algorithm: 1 to 8 seconds, with a default o
 
 ## Set the sound
 
-Choose a Model, then adjust **Time**, **Feedback** and **Mix**. The supplied profiles use **28% Feedback** and **39% Mix**. Model-specific pages expose controls such as Tone, Drive, Mod rate/depth, tap pattern, sample rate, ducking or swell.
+Choose a musical **Preset** on the Model page, or select **Custom** and a Model. A new instance starts with **Internal BPM at 120 BPM**. Then adjust **Time**, **Feedback** and **Mix**. Model-specific pages expose controls such as Tone, Drive, Mod rate/depth, tap pattern, sample rate, ducking or swell.
 
 **Sweep Down** uses a descending low-pass sweep; **Sweep Up** uses an ascending high-pass sweep. A new input phrase triggers each sweep, whose duration follows Mod rate.
 
@@ -43,4 +43,6 @@ For **Stereo Delays**, open **Stereo**. In sync, **Division** sets the left dela
 
 **Active** processes normally. **Dry** passes the input while existing echoes decay internally. **Tails** passes the input together with the remaining echoes. The output limiter remains active.
 
-Loop Sampler provides **Record**, **Play**, **Overdub**, **Stop** and **Clear**. Time sets the next recording length. Audio stays in memory only; saved presets do not contain the loop, and changing the model clears it.
+Loop Sampler provides **Record**, **Play**, **Overdub**, **Stop** and **Clear**. Time or Division sets the next recording length. Audio stays in memory only; saved presets do not contain the loop, and changing the model clears it.
+
+The [preset guide](PRESETS.md) describes the 19 recipes, including three polyrhythms. Preset changes retain active clock source, tempo, CV inputs and audio routing; selecting a recipe from Free enables Internal BPM. Applying a recipe resets its sound controls; editing a recipe control selects Custom.

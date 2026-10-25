@@ -24,8 +24,11 @@ enum Parameter {
     FeedbackLPHz, Drift,
     FeedbackHPHz, LoResEndHz, LoResDecayMs, LoResEnvelopeAmount, RackSampleRateHz,
     LoResCutoffHz, Voicing, ModulationEnabled, Version, RightDivision,
+    FactoryPreset, ExciterHighpassOn, WetToneOn,
     ParameterCount
 };
+#include "factory_presets.h"
+static_assert(ParameterCount<=64,"pending parameter writes use a bounded bit mask");
 static const char* const modelNames[] = {
     "Digital control", "Analog (provisional)", "Tube B (provisional)",
     "Ping Pong (provisional)", "Multi-Head (provisional)",
@@ -75,7 +78,7 @@ static const _NT_parameter parameters[] = {
     {"Sample rate", 0, 32000, 8000, kNT_unitHasStrings, 0, nullptr},
     {"Exciter amount", 0, 1000, 100, kNT_unitPercent, kNT_scaling10, nullptr},
     {"Exciter tune", 200, 10000, 4000, kNT_unitHz, 0, nullptr},
-    {"Tap pattern", 0, 7, 0, kNT_unitHasStrings, 0, nullptr},
+    {"Tap pattern", 0, echolab::multitap::patternCount-1, 0, kNT_unitHasStrings, 0, nullptr},
     {"Mod 1 source", 0, 5, 0, kNT_unitEnum, 0, sourceNames},
     {"Mod 1 target", 0, 8, 0, kNT_unitEnum, 0, destinationNames},
     {"Mod 1 amount", -1000, 1000, 0, kNT_unitPercent, kNT_scaling10, nullptr},
@@ -86,7 +89,7 @@ static const _NT_parameter parameters[] = {
     NT_PARAMETER_CV_INPUT("Mod CV 2", 0, 0)
     NT_PARAMETER_CV_INPUT("Clock CV", 0, 0)
     {"Clock pulses/qtr", 0, 3, 2, kNT_unitEnum, 0, ppqnNames},
-    {"Sync", 0, 3, 0, kNT_unitEnum, 0, syncNames},
+    {"Sync", 0, 3, 3, kNT_unitEnum, 0, syncNames},
     {"Tempo", 30, 300, 120, kNT_unitBPM, 0, nullptr},
     {"Division", 0, 9, 2, kNT_unitEnum, 0, divisionNames},
     {"Feedback low-pass", 0, 20000, 12000, kNT_unitHasStrings, 0, nullptr},
@@ -101,14 +104,13 @@ static const _NT_parameter parameters[] = {
     {"Internal modulation", 0, 1, 1, kNT_unitEnum, 0, onOffNames},
     {"Version", 0, 1, 0, kNT_unitHasStrings, 0, nullptr},
     {"Right division", 0, 10, 0, kNT_unitEnum, 0, rightDivisionNames},
+    {"Preset", 0, preset_bank::count, 0, kNT_unitEnum, 0, preset_bank::names},
+    {"Exciter return HP", 0, 1, 0, kNT_unitEnum, 0, onOffNames},
+    {"Wet tone", 0, 1, 0, kNT_unitEnum, 0, onOffNames},
 };
-static const uint8_t modelParams[] = {Model, ModulationEnabled};
+static const uint8_t modelParams[] = {FactoryPreset, Model, ModulationEnabled};
 static const uint8_t mainParams[] = {Time, Feedback, Mix};
 static const uint8_t syncedMainParams[] = {Division, Feedback, Mix};
-static const uint8_t colourParams[] = {Tone, Drive};
-static const uint8_t versionColourParams[] = {Version, Tone, Drive};
-static const uint8_t versionDriveParams[] = {Version, Drive};
-static const uint8_t versionParams[] = {Version};
 static const uint8_t routingParams[] = {InputL, InputR, OutputL, OutputModeL, OutputR, OutputModeR, Bypass};
 static const uint8_t modulationParams[] = {ModRate, ModDepth};
 static const uint8_t rateParams[] = {ModRate};
@@ -141,14 +143,21 @@ struct Algorithm : _NT_algorithm {
     ClockSync clock;
     echolab::safety::Limiter outputLimiter;
     _NT_parameterPage pageStorage[16]{};
+    uint8_t colorParameters[6]{};
     _NT_parameterPages pageDefinitions{};
     int visibleModel = -1;
     int visibleVoicing = -1;
     bool visibleSyncedTime = false;
     bool visibleRightRatio = true;
+    bool visibleWetTone = false;
+    bool visibleExciterHighpass = false;
     int observedVersion = 0;
-    int pendingVersionWrite = -1;
     int pendingVoicing = -1;
+    int observedPreset = 0;
+    std::uint64_t pendingWrites = 0;
+    int16_t desiredValues[ParameterCount]{};
+    int16_t sentValues[ParameterCount]{};
+    bool applyingPreset = false;
     std::uint32_t appliedClockRevision = 0;
     float preparedLimiterRelease = 0.0f;
     float wheel = 0.0f;
@@ -168,19 +177,28 @@ static void updatePages(Algorithm* self, int model, bool notify) {
     const int voice=echolab::resolvedVoicing(static_cast<echolab::Model>(model),self->controls.voicing);
     const bool syncedTime=self->clock.locked();
     const bool rightRatio=value(self,RightDivision)==0;
+    const bool wetTone=value(self,WetToneOn)!=0;
+    const bool exciterHighpass=value(self,ExciterHighpassOn)!=0;
     if(self->visibleModel==model && self->visibleVoicing==voice && self->visibleSyncedTime==syncedTime &&
-       (model!=15 || self->visibleRightRatio==rightRatio)) return;
+       (model!=15 || self->visibleRightRatio==rightRatio) && self->visibleWetTone==wetTone &&
+       self->visibleExciterHighpass==exciterHighpass) return;
     unsigned count=0;
     const auto add=[&](const char* name,const uint8_t* ids,std::size_t size,uint8_t group) {
         self->pageStorage[count++]={name,static_cast<uint8_t>(size),group,{0,0},ids};
     };
     add("Delay",syncedTime ? syncedMainParams : mainParams,ARRAY_SIZE(mainParams),2);
     add("Model",modelParams,ARRAY_SIZE(modelParams),1);
-    if(model==1 || model==2 || model==4 || model==7 || model==8 || model==9 || model==14 || model==18 || model==19) {
-        if(hasVersion(model)) add("Color",versionColourParams,ARRAY_SIZE(versionColourParams),3);
-        else add("Color",colourParams,ARRAY_SIZE(colourParams),3);
-    } else if(model==17) add("Color",versionDriveParams,ARRAY_SIZE(versionDriveParams),3);
-    else if(hasVersion(model)) add("Color",versionParams,ARRAY_SIZE(versionParams),3);
+    unsigned colorCount=0;
+    const bool nativeTone=model==1 || model==2 || model==4 || model==7 || model==8 || model==9 || model==14 || model==18 || model==19;
+    if(hasVersion(model)) self->colorParameters[colorCount++]=Version;
+    self->colorParameters[colorCount++]=WetToneOn;
+    if(nativeTone || wetTone) self->colorParameters[colorCount++]=Tone;
+    if(nativeTone || model==17) self->colorParameters[colorCount++]=Drive;
+    if(model==17 && voice==1) {
+        self->colorParameters[colorCount++]=ExciterHighpassOn;
+        if(exciterHighpass) self->colorParameters[colorCount++]=FeedbackHPHz;
+    }
+    add("Color",self->colorParameters,colorCount,3);
     if(model==7 || model==9 || model==10 || model==14)
         add("Modulation",modulationParams,ARRAY_SIZE(modulationParams),4);
     if(model==8 || model==18) add("Sweep",rateParams,ARRAY_SIZE(rateParams),4);
@@ -221,6 +239,8 @@ static void updatePages(Algorithm* self, int model, bool notify) {
     self->visibleVoicing=voice;
     self->visibleSyncedTime=syncedTime;
     self->visibleRightRatio=rightRatio;
+    self->visibleWetTone=wetTone;
+    self->visibleExciterHighpass=exciterHighpass;
     if(notify) { const auto index=NT_algorithmIndex(self);if(index>=0) NT_updateParameterPages(static_cast<uint32_t>(index)); }
 }
 
@@ -258,14 +278,27 @@ _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs, const _NT_algorith
     // No reads from v here: its ownership and initialization belong to the host.
     return self;
 }
-static int value(const Algorithm* self, int id) {
+static int rawValue(const Algorithm* self, int id) {
     const int v = self->v ? self->v[id] : parameters[id].def;
     return v < parameters[id].min ? parameters[id].min : (v > parameters[id].max ? parameters[id].max : v);
+}
+static int value(const Algorithm* self,int id) {
+    return self->pendingWrites&(std::uint64_t(1)<<id) ? self->desiredValues[id] : rawValue(self,id);
 }
 static void setHostParameter(Algorithm* self,int parameter,int setting) {
     const auto index=NT_algorithmIndex(self);
     if(index>=0) NT_setParameterFromAudio(static_cast<uint32_t>(index),
                                          static_cast<uint32_t>(parameter)+NT_parameterOffset(),static_cast<int16_t>(setting));
+}
+static void requestParameter(Algorithm* self,int parameter,int setting) {
+    const auto bit=std::uint64_t(1)<<parameter;
+    const int bounded=std::max<int>(parameters[parameter].min,std::min<int>(parameters[parameter].max,setting));
+    self->desiredValues[parameter]=static_cast<int16_t>(bounded);
+    if(!(self->pendingWrites&bit)) {
+        self->pendingWrites|=bit;
+        self->sentValues[parameter]=static_cast<int16_t>(bounded);
+        setHostParameter(self,parameter,bounded);
+    }
 }
 static float stereoRatio(const Algorithm* self,float leftMs) {
     const int right=value(self,RightDivision);
@@ -327,6 +360,8 @@ static void updateControls(Algorithm* self) {
     self->controls.voicing=self->pendingVoicing>=0 ? self->pendingVoicing :
         (productVersion==1 ? 3 : savedVoicing);
     self->controls.modulation_enabled=value(self,ModulationEnabled)!=0;
+    self->controls.exciter_highpass_enabled=value(self,ExciterHighpassOn)!=0;
+    self->controls.wet_tone_enabled=value(self,WetToneOn)!=0;
     if(self->preparedLimiterRelease!=self->controls.limiter_release_ms) {
         self->outputLimiter.prepare(sampleRate(),self->controls.limiter_release_ms);
         self->preparedLimiterRelease=self->controls.limiter_release_ms;
@@ -334,25 +369,79 @@ static void updateControls(Algorithm* self) {
     self->outputLimiter.setCeiling(self->controls.limiter_ceiling);
     self->engine.setParameters(self->controls);
 }
+static void applyPreset(Algorithm* self,int selected) {
+    if(selected<1 || selected>static_cast<int>(preset_bank::count)) return;
+    const auto& preset=preset_bank::presets[selected-1];
+    std::uint64_t send=0;
+    self->applyingPreset=true;
+    // Publish all desired values before the first host callback. The audio and
+    // pages then see one complete recipe while the host persists its fields.
+    for(unsigned i=0;i<preset.count;++i) {
+        const auto& setting=preset.values[i];
+        if(setting.parameter<0 || setting.parameter>=ParameterCount || setting.parameter==FactoryPreset ||
+           setting.parameter==SyncMode || setting.parameter==TempoBpm || setting.parameter==ClockPpqn) continue;
+        const int p=setting.parameter;
+        const auto bit=std::uint64_t(1)<<p;
+        const int bounded=std::max<int>(parameters[p].min,std::min<int>(parameters[p].max,setting.value));
+        self->desiredValues[p]=static_cast<int16_t>(bounded);
+        if(!(self->pendingWrites&bit)) { self->pendingWrites|=bit;send|=bit;self->sentValues[p]=static_cast<int16_t>(bounded); }
+    }
+    if(value(self,SyncMode)==0) {
+        // A musical recipe must activate its note values. Keep an existing
+        // internal/external clock; Free moves to the user's internal tempo.
+        const auto bit=std::uint64_t(1)<<SyncMode;
+        self->desiredValues[SyncMode]=3;
+        if(!(self->pendingWrites&bit)) { self->pendingWrites|=bit;send|=bit;self->sentValues[SyncMode]=3; }
+    }
+    self->observedPreset=selected;
+    self->observedVersion=value(self,Version);
+    self->pendingVoicing=-1;
+    updateControls(self);updatePages(self,value(self,Model),true);
+    for(int p=0;p<ParameterCount;++p) if(send&(std::uint64_t(1)<<p)) setHostParameter(self,p,self->sentValues[p]);
+    self->applyingPreset=false;
+}
+static bool keepsPresetName(int p) {
+    return p<=OutputModeR || p==Bypass || p==CV1Bus || p==CV2Bus || p==ClockBus || p==ClockPpqn || p==SyncMode || p==TempoBpm;
+}
 void parameterChanged(_NT_algorithm* base, int p) {
     // Coefficients cached in the core; no clearing a delay or allocating here.
     auto* self=static_cast<Algorithm*>(base);
+    const auto bit=std::uint64_t(1)<<p;
+    const int raw=rawValue(self,p);
+    if(self->pendingWrites&bit) {
+        if(raw==self->sentValues[p]) {
+            if(raw!=self->desiredValues[p]) {
+                // A previous recipe or a later manual edit superseded this
+                // queued write. Persist the newest value, retaining its sound.
+                self->sentValues[p]=self->desiredValues[p];
+                setHostParameter(self,p,self->sentValues[p]);
+            } else self->pendingWrites&=~bit;
+            if(p==Voicing && raw==self->pendingVoicing) self->pendingVoicing=-1;
+            return;
+        }
+        // An actual edit arrived while an older host write was outstanding.
+        // Keep that edit in the desired cache until its stale acknowledgement
+        // can be corrected through the host, without touching v directly.
+        self->desiredValues[p]=static_cast<int16_t>(raw);
+    }
+    if(p==FactoryPreset) {
+        if(self->initialControls) self->observedPreset=raw;
+        else if(raw!=self->observedPreset) {
+            self->observedPreset=raw;
+            if(raw!=0) { applyPreset(self,raw);return; }
+        }
+    } else if(!self->initialControls && !self->applyingPreset && !keepsPresetName(p) && self->observedPreset!=0) {
+        self->observedPreset=0;
+        requestParameter(self,FactoryPreset,0);
+    }
     if(p==Version) {
         const int selected=value(self,Version);
-        if(!self->initialControls && selected==self->pendingVersionWrite) {
-            self->pendingVersionWrite=-1;
-            if(selected!=self->observedVersion) {
-                // An old normalization acknowledgement arrived after a newer
-                // user edit. Restore the newer value without changing its sound.
-                self->pendingVersionWrite=self->observedVersion;
-                setHostParameter(self,Version,self->observedVersion);
-            }
-        } else if(!self->initialControls && selected!=self->observedVersion) {
+        if(!self->initialControls && selected!=self->observedVersion) {
             self->observedVersion=selected;
             // Keep old saved A04/A05 choices until the user explicitly edits
             // Version. The host owns v; persist the new selection through its API.
             self->pendingVoicing=selected ? 3 : 0;
-            setHostParameter(self,Voicing,self->pendingVoicing);
+            requestParameter(self,Voicing,self->pendingVoicing);
         } else if(self->initialControls) self->observedVersion=selected;
     }
     if(p==Voicing && value(self,Voicing)==self->pendingVoicing) self->pendingVoicing=-1;
@@ -415,7 +504,7 @@ int parameterString(_NT_algorithm* base,int p,int v,char* buffer) {
     }
     if(p==Version) {
         int version=std::max(0,std::min(1,v));
-        if(base && v==value(static_cast<Algorithm*>(base),Version)) {
+        if(base && (v==value(static_cast<Algorithm*>(base),Version) || v==rawValue(static_cast<Algorithm*>(base),Version))) {
             const auto* self=static_cast<Algorithm*>(base);
             version=self->initialControls ? (self->controls.voicing==3 ? 1 : version) : self->observedVersion;
         }
@@ -474,14 +563,14 @@ void step(_NT_algorithm* base, float* busFrames, int numFramesBy4) {
         // First controls must take effect without clearing a large delay in step().
         // prepare already initialized defaults; regular sample-rate smoothing applies.
         self->observedVersion=value(self,Version);
+        self->observedPreset=value(self,FactoryPreset);
         self->initialControls = false;
         if(hasVersion(value(self,Model)) && self->observedVersion==0 && self->controls.voicing==3) {
             // Old presets have no Version53. Reflect their explicit B choice
             // without changing hidden Voicing51. Cache before the callback,
             // which may be delivered immediately or later by the host.
             self->observedVersion=1;
-            self->pendingVersionWrite=1;
-            setHostParameter(self,Version,1);
+            requestParameter(self,Version,1);
         }
     }
     const int il = bus(self, InputL), ir = bus(self, InputR);
@@ -535,7 +624,7 @@ void step(_NT_algorithm* base, float* busFrames, int numFramesBy4) {
 static constexpr _NT_factory factory = [] {
     _NT_factory f = {};
     f.guid = NT_MULTICHAR('E', 'L', 'n', 't');
-    f.name = "Coloured_Echos";
+    f.name = "EchoLabNT";
     f.description = ECHOLAB_BUILD_ID ": prerelease, control + 18 provisional models + original Exciter";
     f.numSpecifications = 1;
     f.specifications = specifications;

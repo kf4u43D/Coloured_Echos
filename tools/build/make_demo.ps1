@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$renderer = Join-Path $root 'build/host/Release/coloured_echos_render.exe'
+$renderer = Join-Path $root 'build/host/Release/echolabnt_render.exe'
 if (!(Test-Path -LiteralPath $renderer)) { throw 'Construire le renderer : cmake --preset windows ; cmake --build --preset windows.' }
 $python = Join-Path $root '.venv/Scripts/python.exe'
 if (!(Test-Path -LiteralPath $python)) { $python = (Get-Command python -ErrorAction Stop).Source }

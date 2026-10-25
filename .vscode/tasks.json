@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Echo: diagnostic",
+      "label": "EchoLabNT: diagnostic",
       "type": "process",
       "command": "pwsh",
       "args": [
@@ -13,7 +13,7 @@
       "problemMatcher": []
     },
     {
-      "label": "Echo: configure host",
+      "label": "EchoLabNT: configure host",
       "type": "process",
       "command": "cmake",
       "args": [
@@ -23,7 +23,7 @@
       "problemMatcher": []
     },
     {
-      "label": "Echo: build host",
+      "label": "EchoLabNT: build host",
       "type": "process",
       "command": "cmake",
       "args": [
@@ -31,7 +31,7 @@
         "--preset",
         "windows"
       ],
-      "dependsOn": "Echo: configure host",
+      "dependsOn": "EchoLabNT: configure host",
       "group": {
         "kind": "build",
         "isDefault": true
@@ -39,19 +39,19 @@
       "problemMatcher": "$msCompile"
     },
     {
-      "label": "Echo: test host",
+      "label": "EchoLabNT: test host",
       "type": "process",
       "command": "ctest",
       "args": [
         "--preset",
         "windows"
       ],
-      "dependsOn": "Echo: build host",
+      "dependsOn": "EchoLabNT: build host",
       "group": "test",
       "problemMatcher": []
     },
     {
-      "label": "Echo: synthetic tools tests",
+      "label": "EchoLabNT: synthetic tools tests",
       "type": "process",
       "command": "python",
       "args": [
@@ -67,17 +67,17 @@
       "problemMatcher": []
     },
     {
-      "label": "Echo: verify new models",
+      "label": "EchoLabNT: verify new models",
       "type": "process",
       "command": "python",
       "args": [
         "${workspaceFolder}/tools/analysis/verify_new_models.py"
       ],
-      "dependsOn": "Echo: build host",
+      "dependsOn": "EchoLabNT: build host",
       "problemMatcher": []
     },
     {
-      "label": "Echo: render synthetic demo",
+      "label": "EchoLabNT: render synthetic demo",
       "type": "process",
       "command": "pwsh",
       "args": [
@@ -85,11 +85,11 @@
         "-File",
         "${workspaceFolder}/tools/build/make_demo.ps1"
       ],
-      "dependsOn": "Echo: build host",
+      "dependsOn": "EchoLabNT: build host",
       "problemMatcher": []
     },
     {
-      "label": "Echo: build NT object",
+      "label": "EchoLabNT: build NT object",
       "type": "process",
       "command": "pwsh",
       "args": [
@@ -100,7 +100,7 @@
       "problemMatcher": "$gcc"
     },
     {
-      "label": "Echo: package NT",
+      "label": "EchoLabNT: package NT",
       "type": "process",
       "command": "pwsh",
       "args": [

@@ -2,6 +2,10 @@ param([string]$SdkPath = '')
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $version = ([IO.File]::ReadAllText((Join-Path $root 'VERSION'))).Trim()
+$python = Join-Path $root '.venv/Scripts/python.exe'
+if (!(Test-Path -LiteralPath $python)) { $python = (Get-Command python -ErrorAction Stop).Source }
+& $python (Join-Path $root 'tools/build/generate_presets.py') --check
+if ($LASTEXITCODE -ne 0) { throw 'Factory preset outputs are stale. Run tools/build/generate_presets.py.' }
 if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$') { throw 'VERSION invalide.' }
 if (!$SdkPath) { $SdkPath = Join-Path $root 'third_party/distingNT_API_1.18.0' }
 $header = Join-Path $SdkPath 'include/distingnt/api.h'
@@ -22,7 +26,7 @@ $sourceHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($b
 $buildId = $version + '+' + $sourceHash.Substring(0, 12)
 $idHeader = Join-Path $out 'build_id.h'
 ('#define ECHOLAB_BUILD_ID "' + $buildId + '"') | Set-Content -LiteralPath $idHeader -Encoding ascii
-$object = Join-Path $out 'coloured_echos.o'
+$object = Join-Path $out 'echolabnt.o'
 $arguments = @('-std=c++17', '-mcpu=cortex-m7', '-mfpu=fpv5-d16', '-mfloat-abi=hard', '-mthumb', '-fno-rtti', '-fno-exceptions', '-Os', '-fPIC', '-Wall', '-Wextra', ('-I' + (Join-Path $SdkPath 'include')), '-include', $idHeader, '-c', '-o', $object, (Join-Path $root 'src/nt/echo_lab.cpp'))
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Compilation ARM échouée.' }
@@ -49,7 +53,7 @@ $manifest = [ordered]@{
     sdk_tag = 'v1.18.0'; sdk_api_header_sha256 = $expectedHeader; api_version = 13; factory_guid = 'ELnt'
     target_firmware = '1.18.0'; entry_section = '.text'
     compiler = (& $compiler --version | Select-Object -First 1); flags = $arguments
-    object = 'coloured_echos.o'; bytes = (Get-Item -LiteralPath $object).Length
+    object = 'echolabnt.o'; bytes = (Get-Item -LiteralPath $object).Length
     sha256 = (Get-FileHash -LiteralPath $object -Algorithm SHA256).Hash.ToLowerInvariant()
     undefined_symbols = $symbols; compiled = 'passed'; hardware_test = 'not_run'; sonic_fidelity = 'not_qualified'
 }

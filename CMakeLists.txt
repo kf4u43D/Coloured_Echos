@@ -4,7 +4,7 @@ if(NOT ECHOLAB_PROJECT_VERSION MATCHES "^([0-9]+\\.[0-9]+\\.[0-9]+)(-[0-9A-Za-z.
     message(FATAL_ERROR "Invalid VERSION")
 endif()
 set(ECHOLAB_NUMERIC_VERSION "${CMAKE_MATCH_1}")
-project(Coloured_Echos VERSION ${ECHOLAB_NUMERIC_VERSION} LANGUAGES CXX)
+project(EchoLabNT VERSION ${ECHOLAB_NUMERIC_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,7 +13,7 @@ option(ECHOLAB_SANITIZERS "Enable address/undefined sanitizers on supported host
 option(ECHOLAB_MSVC_ASAN "Enable MSVC AddressSanitizer (use Release/RelWithDebInfo, no UBSan)" OFF)
 set(ECHOLAB_BUILD_ID "" CACHE STRING "Override build ID; empty derives version plus source SHA-256")
 set(echolab_source_signature "")
-foreach(source IN ITEMS VERSION CMakeLists.txt src/dsp/engine.h src/dsp/engine.cpp src/dsp/segment_models.h src/dsp/rack_models.h src/dsp/output_limiter.h src/dsp/loop_exciter.h src/dsp/multitap_patterns.h src/dsp/analog_color.h src/dsp/a04_color.h src/dsp/legacy_voicings.h src/host/wav.h src/host/wav.cpp src/host/sha256.h src/host/sha256.cpp src/host/renderer.cpp)
+foreach(source IN ITEMS VERSION CMakeLists.txt src/dsp/engine.h src/dsp/engine.cpp src/dsp/segment_models.h src/dsp/rack_models.h src/dsp/output_limiter.h src/dsp/loop_exciter.h src/dsp/multitap_patterns.h src/dsp/analog_color.h src/dsp/a04_color.h src/dsp/legacy_voicings.h src/host/wav.h src/host/wav.cpp src/host/sha256.h src/host/sha256.cpp src/host/renderer.cpp src/host/profile_timing.h src/nt/clock_sync.h)
     file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/${source}" source_sha256)
     string(APPEND echolab_source_signature "${source}:${source_sha256}\n")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
@@ -25,7 +25,7 @@ if(ECHOLAB_BUILD_ID STREQUAL "" OR ECHOLAB_BUILD_ID STREQUAL "source-unversioned
 else()
     set(ECHOLAB_EFFECTIVE_BUILD_ID "${ECHOLAB_BUILD_ID}")
 endif()
-message(STATUS "Coloured_Echos host build ID: ${ECHOLAB_EFFECTIVE_BUILD_ID}")
+message(STATUS "EchoLabNT host build ID: ${ECHOLAB_EFFECTIVE_BUILD_ID}")
 
 function(echolab_warnings target)
     if(MSVC)
@@ -60,7 +60,7 @@ target_include_directories(echolab_wav PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/h
 echolab_warnings(echolab_wav)
 
 add_executable(echo_render src/host/renderer.cpp)
-set_target_properties(echo_render PROPERTIES OUTPUT_NAME coloured_echos_render)
+set_target_properties(echo_render PROPERTIES OUTPUT_NAME echolabnt_render)
 target_link_libraries(echo_render PRIVATE echolab_dsp echolab_wav)
 target_compile_definitions(echo_render PRIVATE ECHOLAB_BUILD_ID="${ECHOLAB_EFFECTIVE_BUILD_ID}"
     ECHOLAB_SOURCE_SHA256="${ECHOLAB_SOURCE_SHA256}"
@@ -134,6 +134,8 @@ if(BUILD_TESTING)
 
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME preset_bank_generated COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/build/generate_presets.py" --check)
+        add_test(NAME preset_bank_contract COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_presets.py")
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tools.py")
             add_test(NAME analysis_tools COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tools.py")
             set_tests_properties(analysis_tools PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")

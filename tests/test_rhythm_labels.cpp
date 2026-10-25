@@ -20,9 +20,11 @@ static void musicalTimes() {
         "Triplet: 1/8T 1/4T 1/4", "Four: 1/16 1/8 1/8D 1/4",
         "Binary: 1/8 1/4", "Dotted: 3/32 1/8D 1/4",
         "Golden: 0.382x 0.618x 1x span", "Gallop: 1/16 1/8D 1/4",
-        "Cluster: 1/8D 7/32 1/4", "Single: 1/4"
+        "Cluster: 1/8D 7/32 1/4", "Single: 1/4",
+        "Poly 3:2: 1/8T 1/8 1/4T 1/4", "Poly 4:3: 1/16 1/8T 1/8 1/4T 1/8D 1/4",
+        "Poly 5:4: 1/20 1/16 1/10 1/8 3/20 1/8D 1/5 1/4"
     };
-    for(int pattern=0;pattern<8;++pattern) expect(pattern,true,2,quarter[pattern]);
+    for(int pattern=0;pattern<static_cast<int>(echolab::multitap::patternCount);++pattern) expect(pattern,true,2,quarter[pattern]);
     expect(0,true,5,"Triplet: 1/8 1/4 1/4D");
     expect(1,true,5,"Four: 3/32 1/8D 9/32 1/4D");
     expect(0,true,7,"Triplet: 1/18 1/9 1/4T");
@@ -40,19 +42,25 @@ static void freeTimingAndFallbacks() {
     expect(4,true,5,"Golden: 0.382x 0.618x 1x span");
     expect(6,false,0,"Cluster: 3/4 7/8 1 span");
     expect(7,false,9,"Single: 1 span");
+    expect(8,false,2,"Poly 3:2: 1/3 1/2 2/3 1 span");
+    expect(9,false,2,"Poly 4:3: 1/4 1/3 1/2 2/3 3/4 1 span");
+    expect(10,false,2,"Poly 5:4: 1/5 1/4 2/5 1/2 3/5 3/4 4/5 1 span");
+    expect(10,true,0,"Poly 5:4: 1/5 1/4 2/5 1/2 3/5 3/4 4/5 1/1");
+    expect(10,true,7,"Poly 5:4: 1/30 1/16T 1/15 1/8T 1/10 1/8 2/15 1/4T");
     expect(-1,true,2,"Triplet: 1/8T 1/4T 1/4");
-    expect(8,false,2,"Triplet: 1/3 2/3 1 span");
+    expect(11,false,2,"Triplet: 1/3 2/3 1 span");
     expect(7,true,-1,"Single: 1/1");
     expect(7,true,10,"Single: 1/16T");
 }
 static void boundedBuffers() {
-    for(int pattern=0;pattern<8;++pattern) for(bool synced : {false,true}) {
-        char full[64];
-        const auto fullLength=echolab_nt::formatTapPattern(pattern,synced,2,full);
+    for(int pattern=0;pattern<static_cast<int>(echolab::multitap::patternCount);++pattern)
+    for(bool synced : {false,true}) for(int division=0;division<10;++division) {
+        char full[256];
+        const auto fullLength=echolab_nt::formatTapPattern(pattern,synced,division,full,sizeof(full));
         check(fullLength<64,"all complete pattern labels fit 64 bytes");
         for(std::size_t capacity=0;capacity<=64;++capacity) {
             char guarded[66];std::memset(guarded,'#',sizeof(guarded));
-            const auto length=echolab_nt::formatTapPattern(pattern,synced,2,guarded+1,capacity);
+            const auto length=echolab_nt::formatTapPattern(pattern,synced,division,guarded+1,capacity);
             check(guarded[0]=='#' && guarded[capacity+1]=='#',"formatter preserves both buffer canaries");
             if(capacity==0) check(length==0 && guarded[1]=='#',"zero capacity performs no write");
             else {

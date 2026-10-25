@@ -69,6 +69,9 @@ class RendererContract(unittest.TestCase):
     def test_help(self):
         result = subprocess.run([str(RENDERER), "--help"], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0)
+        self.assertIn("EchoLabNT offline renderer", result.stdout)
+        self.assertIn("Usage: echolabnt_render", result.stdout)
+        self.assertIn("--sync-mode", result.stdout)
         self.assertIn("--events", result.stdout)
         self.assertIn("pingpong", result.stdout)
         self.assertIn("multihead", result.stdout)
@@ -156,6 +159,78 @@ class RendererContract(unittest.TestCase):
         self.run_renderer(*options)
         self.assertEqual(actual, self.output.read_bytes())
 
+    def test_internal_tempo_default_and_musical_profile_overrides(self):
+        write_wave(self.input,[.5]+[0]*15)
+        self.run_renderer("--model","digital","--feedback",0,"--mix",1,"--tail",.6)
+        metadata=json.loads(Path(str(self.output)+".json").read_text())
+        self.assertEqual(metadata["rhythm"]["sync_mode"],"internal")
+        self.assertEqual(metadata["rhythm"]["tempo_bpm"],120)
+        self.assertEqual(metadata["rhythm"]["division"],"1/4")
+        self.assertEqual(metadata["parameters"]["delay_ms"],500)
+        self.assertEqual(read_float(self.output)[4000*2],.5)
+        profile=self.root/"musical.profile"
+        # No stored milliseconds: all supported notes resolve after CLI tempo.
+        for note,quarters in (("1/1",4),("1/2",2),("1/4",1),("1/8",.5),("1/16",.25),
+                              ("1/4D",1.5),("1/8D",.75),("1/4T",2/3),("1/8T",1/3),("1/16T",1/6)):
+            with self.subTest(note=note):
+                profile.write_text(f"model=digital\nsync_mode=internal\ntempo_bpm=90\ndivision={note}\nfeedback=0\nmix=1\n")
+                self.run_renderer("--tempo-bpm",120,"--profile",profile,"--tail",2.1)
+                musical_audio=self.output.read_bytes()
+                metadata=json.loads(Path(str(self.output)+".json").read_text())
+                self.assertEqual(metadata["rhythm"]["division"],note)
+                self.assertEqual(metadata["rhythm"]["tempo_bpm"],120)
+                self.assertAlmostEqual(metadata["parameters"]["delay_ms"],500*quarters,places=4)
+                self.run_renderer("--model","digital","--delay-ms",500*quarters,"--feedback",0,"--mix",1,"--tail",2.1)
+                self.assertEqual(self.output.read_bytes(),musical_audio)
+        profile.write_text("model=digital\nsync_mode=internal\ntempo_bpm=120\ndivision=1/8D\n")
+        self.run_renderer("--profile",profile,"--delay-ms",5,"--tail",0)
+        metadata=json.loads(Path(str(self.output)+".json").read_text())
+        self.assertEqual(metadata["rhythm"]["sync_mode"],"free")
+        self.assertEqual(metadata["parameters"]["delay_ms"],5)
+        for options in (("--sync-mode","internal","--delay-ms",5),("--delay-ms",5,"--sync-mode","internal")):
+            self.run_renderer("--profile",profile,*options,"--tail",0)
+            metadata=json.loads(Path(str(self.output)+".json").read_text())
+            self.assertEqual(metadata["parameters"]["delay_ms"],375)
+            self.assertEqual(metadata["rhythm"]["sync_mode"],"internal")
+
+    def test_stereo_note_divisions_and_independent_clipping(self):
+        write_wave(self.input,[.5,-.25]+[0]*30,channels=2)
+        profile=self.root/"stereo_notes.profile"
+        for left,right,capacity,wanted_left,wanted_right in (("1/4","1/4D",2500,500,750),
+                ("1/1","1/4",1000,1000,500),("1/4","1/1",1000,500,1000),
+                ("1/16T","1/1",2500,500/6,2000)):
+            with self.subTest(left=left,right=right):
+                profile.write_text(f"model=stereo\nsync_mode=internal\ntempo_bpm=120\ndivision={left}\nright_division={right}\nfeedback=0\nmix=1\n")
+                self.run_renderer("--profile",profile,"--max-delay-ms",capacity,"--tail",2.1)
+                metadata=json.loads(Path(str(self.output)+".json").read_text())
+                rhythm=metadata["rhythm"]
+                self.assertEqual(rhythm["division"],left)
+                self.assertEqual(rhythm["right_division"],right)
+                self.assertAlmostEqual(rhythm["effective_left_ms"],wanted_left,places=4)
+                self.assertAlmostEqual(rhythm["effective_right_ms"],wanted_right,places=4)
+                self.assertAlmostEqual(metadata["controls"]["stereo_ratio"],wanted_right/wanted_left,places=5)
+                self.assertEqual(rhythm["left_clipped"],left=="1/1" and capacity==1000)
+                self.assertEqual(rhythm["right_clipped"],right=="1/1" and capacity==1000)
+
+    def test_musical_timing_events_and_optional_colour_profile_keys(self):
+        write_wave(self.input,[.25,-.125]*128,channels=2)
+        profile=self.root/"options.profile"
+        profile.write_text("model=exciter\nsync_mode=internal\ntempo_bpm=120\ndivision=1/16\nexciter_highpass_enabled=1\nwet_tone_enabled=1\n")
+        events=self.root/"notes.csv"
+        events.write_text("sample,param,value\n0,division,1/8D\n17,tempo_bpm,150\n64,right_division,1/4T\n128,model,stereo\n200,sync_mode,free\n201,delay_ms,3\n")
+        self.run_renderer("--profile",profile,"--events",events,"--tail",.1,"--block",17)
+        expected=self.output.read_bytes()
+        self.run_renderer("--profile",profile,"--events",events,"--tail",.1,"--block",64)
+        self.assertEqual(self.output.read_bytes(),expected)
+        metadata=json.loads(Path(str(self.output)+".json").read_text())
+        self.assertTrue(metadata["controls"]["exciter_highpass_enabled"])
+        self.assertTrue(metadata["controls"]["wet_tone_enabled"])
+        self.assertEqual(metadata["event_count"],6)
+        self.run_renderer("--profile",profile,"--exciter-highpass-enabled",0,"--wet-tone-enabled",0,"--tail",0)
+        metadata=json.loads(Path(str(self.output)+".json").read_text())
+        self.assertFalse(metadata["controls"]["exciter_highpass_enabled"])
+        self.assertFalse(metadata["controls"]["wet_tone_enabled"])
+
     def test_profile_override_and_events_block_invariance(self):
         write_wave(self.input, [((i*17) % 101 - 50) / 100 for i in range(1000)])
         profile = self.root / "control.profile"
@@ -222,10 +297,13 @@ class RendererContract(unittest.TestCase):
                         ("--lores-rate-end-hz", 99), ("--lores-rate-decay-ms", 0), ("--lores-rate-envelope-amount", 1.1),
                         ("--digital-rack-rate-hz", 999), ("--digital-rack-rate-hz", 384001),
                         ("--lores-cutoff-hz", 19), ("--voicing", "a03"), ("--voicing", 4),
-                        ("--modulation-enabled", 2)):
+                        ("--modulation-enabled", 2), ("--tap-pattern", 11),
+                        ("--sync-mode", "midi"), ("--tempo-bpm", 29), ("--tempo-bpm", 301),
+                        ("--division", "1/7"), ("--right-division", "1/3"),
+                        ("--exciter-highpass-enabled", 2), ("--wet-tone-enabled", -1)):
             with self.subTest(options=options):
                 result = self.run_renderer(*options, success=False)
-                self.assertIn("coloured_echos_render:", result.stderr)
+                self.assertIn("echolabnt_render:", result.stderr)
         events = self.root / "invalid.csv"
         for text in ("sample,param,value\n2,mix,1\n1,mix,0\n", "sample,param,value\n100,mix,1\n"):
             events.write_text(text)
@@ -255,7 +333,8 @@ class RendererContract(unittest.TestCase):
                   "mod1_source":0,"mod1_destination":0,"mod1_amount":0,"mod2_source":0,"mod2_destination":0,"mod2_amount":0,
                   "feedback_lowpass_hz":0,"drift_amount":0,"feedback_highpass_hz":0,
                   "lores_rate_end_hz":1200,"lores_rate_decay_ms":1500,"lores_rate_envelope_amount":0,
-                  "digital_rack_rate_hz":0,"lores_cutoff_hz":0,"voicing":0,"modulation_enabled":1}
+                  "digital_rack_rate_hz":0,"lores_cutoff_hz":0,"voicing":0,"modulation_enabled":1,
+                  "exciter_highpass_enabled":0,"wet_tone_enabled":0}
         options=[]
         for key,value in controls.items(): options.extend(("--"+key.replace("_","-"),value))
         for model in models:
@@ -336,13 +415,13 @@ class RendererContract(unittest.TestCase):
         result=subprocess.run([str(RENDERER),"--input",str(self.input),"--output",str(cv),"--cv1-input",str(cv)],capture_output=True,text=True)
         self.assertNotEqual(result.returncode,0);self.assertEqual(cv.read_bytes(),original)
 
-    def test_eight_multitap_patterns_are_exposed_and_distinct(self):
+    def test_multitap_patterns_are_exposed_and_distinct(self):
         write_wave(self.input,[.5]+[0]*511)
         renders=[]
-        for pattern in range(8):
+        for pattern in range(11):
             self.run_renderer("--model","multihead","--tap-pattern",pattern,"--delay-ms",12,"--feedback",0,"--mix",1,"--tail",0)
             renders.append(self.output.read_bytes())
-        self.assertEqual(len(set(renders)),8)
+        self.assertEqual(len(set(renders)),11)
 
     def test_headroom_is_systematic_when_musical_stage_is_off(self):
         write_wave(self.input,[2,-.5,-4,1,.5,-.25],channels=2)

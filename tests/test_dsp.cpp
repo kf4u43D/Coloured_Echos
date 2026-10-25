@@ -365,7 +365,8 @@ void feedbackAboveUnityAndLimiter() {
           defaults.mod_depth_ms == 6 && defaults.mod_rate_hz == 1 && defaults.sample_rate_hz == 8000 &&
           defaults.feedback_lowpass_hz == 12000 && defaults.feedback_highpass_hz == 80 && defaults.drift_amount == .25f && defaults.limiter_release_ms == 150 &&
           defaults.lores_rate_end_hz == 1200 && defaults.lores_rate_decay_ms == 1500 && defaults.lores_rate_envelope_amount == 1 && defaults.swell_ms == 250 && defaults.digital_rack_rate_hz == 16000 &&
-          defaults.lores_cutoff_hz == 2000 && defaults.voicing == 0 && defaults.modulation_enabled && defaults.exciter_amount == .1f && defaults.exciter_tune_hz == 4000,
+          defaults.lores_cutoff_hz == 2000 && defaults.voicing == 0 && defaults.modulation_enabled && defaults.exciter_amount == .1f && defaults.exciter_tune_hz == 4000 &&
+          !defaults.exciter_highpass_enabled && !defaults.wet_tone_enabled,
           "production defaults combine coloured first pass, band-limited decay, slower LoRes and fixed output headroom");
     for (const auto model:allModels) {
         Fixture guarded(8000,3);p=neutralParameters();p.model=model;p.delay_ms=3;p.feedback=2;p.mix=1;p.limiter_enabled=true;
@@ -400,6 +401,46 @@ void exciterInFeedbackOnly() {
         check(el == dl && er == dr,"zero exciter amount is an exact identity inside the shared feedback path");
     }
 }
+void optionalExciterHighpass() {
+    check(!echolab::Parameters{}.exciter_highpass_enabled,"legacy Exciter presets leave the new return high-pass disabled");
+    constexpr unsigned fs=48000,delay=12000,burst=9600;
+    double ratios[2]{};unsigned band=0;
+    for(double frequency : {50.0,2000.0}) {
+        Fixture filtered(fs,250),unfiltered(fs,250),legacy(fs,250);
+        auto p=neutralParameters();p.model=echolab::Model::ExciterEcho;p.voicing=1;p.delay_ms=250;p.feedback=.5f;p.mix=1;
+        p.exciter_amount=0;p.feedback_highpass_hz=300;p.feedback_lowpass_hz=1000;p.modulation_enabled=false;
+        unfiltered.engine.setParameters(p);unfiltered.engine.reset();
+        p.exciter_highpass_enabled=true;filtered.engine.setParameters(p);filtered.engine.reset();
+        p.exciter_highpass_enabled=false;p.feedback_highpass_hz=0;legacy.engine.setParameters(p);legacy.engine.reset();
+        double filteredEnergy=0,plainEnergy=0;
+        for(unsigned n=0;n<delay*2+burst;++n) {
+            const float input=n<burst ? .1f*static_cast<float>(std::sin(2*3.14159265358979323846*frequency*n/fs)) : 0;
+            float a,b,c,d,e,g;filtered.engine.processSample(input,-input,a,b);
+            unfiltered.engine.processSample(input,-input,c,d);legacy.engine.processSample(input,-input,e,g);
+            check(c==e && d==g,"disabled A04 Exciter high-pass preserves the historical response exactly");
+            if(n<delay*2) check(a==c && b==d,"optional Exciter return high-pass leaves the complete first echo unchanged");
+            if(n>=delay*2+burst/2) {filteredEnergy+=a*a;plainEnergy+=c*c;}
+        }
+        ratios[band++]=std::sqrt(filteredEnergy/plainEnergy);
+    }
+    check(ratios[0]>.1 && ratios[0]<.25 && ratios[1]>.9,
+          "A04 Exciter optional300Hz return high-pass rejects bass while retaining treble without enabling a low-pass");
+    Fixture dc(fs,10);auto p=neutralParameters();p.model=echolab::Model::ExciterEcho;p.voicing=1;
+    p.delay_ms=10;p.feedback=.5f;p.mix=1;p.exciter_amount=0;p.feedback_highpass_hz=300;p.exciter_highpass_enabled=true;
+    dc.engine.setParameters(p);dc.engine.reset();float l=0,r=0;
+    for(unsigned n=0;n<1440;++n) dc.engine.processSample(n<480 ? .1f : 0,n<480 ? -.05f : 0,l,r);
+    check(std::fabs(l)<1e-7f && std::fabs(r)<1e-7f,"optional Exciter high-pass removes a held DC segment from the second return");
+    for(auto model : allModels) if(model!=echolab::Model::ExciterEcho) {
+        Fixture enabled,disabled;p=neutralParameters();p.model=model;p.voicing=1;p.delay_ms=1;p.mix=1;p.feedback=.4f;p.feedback_highpass_hz=300;
+        disabled.engine.setParameters(p);disabled.engine.reset();p.exciter_highpass_enabled=true;
+        enabled.engine.setParameters(p);enabled.engine.reset();
+        for(unsigned n=0;n<100;++n) {
+            float a,b,c,d;const float input=.1f*std::sin(n*.13f);
+            enabled.engine.processSample(input,-input,a,b);disabled.engine.processSample(input,-input,c,d);
+            check(a==c && b==d,"Exciter high-pass opt-in has no effect on any other model");
+        }
+    }
+}
 void selectableHeadPattern() {
     Fixture f;
     auto p=neutralParameters();p.model=echolab::Model::MultiHead;p.delay_ms=4;p.mix=1;p.feedback=.6f;p.tone_hz=1000;p.tap_pattern=1;
@@ -412,6 +453,112 @@ void selectableHeadPattern() {
         near(l,static_cast<float>(expected),2e-7f,"selectable four-head pattern preserves normalized gains and longest-head-only feedback");
         near(r,0,0,"head patterns preserve independent stereo lines");
     }
+}
+void polyrhythmPulseGrids() {
+    static_assert(echolab::multitap::patternCount==11 && echolab::multitap::tapCapacity==8,
+                  "polyrhythms append three patterns using eight static tap slots");
+    for(unsigned index=0;index<echolab::multitap::patternCount;++index) {
+        const auto& pattern=echolab::multitap::pattern(index);
+        float previous=0,total=0;
+        check(pattern.count>0 && pattern.count<=echolab::multitap::tapCapacity,"tap count stays within fixed storage");
+        for(unsigned head=0;head<pattern.count;++head) {
+            check(pattern.taps[head].offset>previous && pattern.taps[head].offset<=1 && pattern.taps[head].gain>0,
+                  "each pattern has ordered, distinct, positive onsets inside one cycle");
+            previous=pattern.taps[head].offset;total+=pattern.taps[head].gain;
+        }
+        near(total,1,2e-7f,"all tap patterns retain unity total wet gain including simultaneous pulse accents");
+    }
+    struct Rhythm { int id,first,second; };
+    const Rhythm rhythms[]={{8,3,2},{9,4,3},{10,5,4}};
+    constexpr int cycle=120;
+    for(float fs : {8000.0f,48000.0f}) for(const auto& rhythm : rhythms) for(float feedback : {0.0f,.6f}) {
+        Fixture f(fs,cycle*1000/fs);
+        auto p=neutralParameters();p.model=echolab::Model::MultiHead;p.tap_pattern=rhythm.id;
+        p.delay_ms=cycle*1000/fs;p.mix=1;p.feedback=feedback;p.tone_hz=1000;
+        f.engine.setParameters(p);f.engine.reset();
+        const double pole=std::exp(-2*3.14159265358979323846*1000/fs);
+        const auto response=[&](int sample) {
+            double sum=0;
+            // Two independently generated uniform pulse trains; their common
+            // endpoint is intentionally counted twice. No pattern table reads.
+            for(int grid : {rhythm.first,rhythm.second}) for(int pulse=1;pulse<=grid;++pulse)
+                sum+=multiHeadImpulse(sample-cycle*pulse/grid,pole,feedback,cycle)/(rhythm.first+rhythm.second);
+            return sum;
+        };
+        audioGuard=true;
+        for(int n=0;n<cycle*5;++n) {
+            float l,r;f.engine.processSample(n == 0 ? .2f : 0,n == 3 ? -.1f : 0,l,r);
+            near(l,static_cast<float>(.2*response(n)),1e-7f,"polyrhythm merges both complete pulse grids and repeats their common cycle");
+            near(r,static_cast<float>(-.1*response(n-3)),1e-7f,"polyrhythm keeps independent stereo timing and coincident-pulse gain");
+        }
+        audioGuard=false;
+    }
+}
+void optionalWetTone() {
+    check(!echolab::Parameters{}.wet_tone_enabled,"legacy presets leave the optional wet-tone filter bypassed");
+    constexpr double pi=3.14159265358979323846;
+    for(float fs : {8000.0f,48000.0f,96000.0f}) {
+        Fixture filtered(fs,20),legacy(fs,20);
+        auto p=neutralParameters();p.delay_ms=8000/fs;p.feedback=0;p.mix=.25f;p.tone_hz=20000;p.modulation_enabled=false;
+        legacy.engine.setParameters(p);legacy.engine.reset();p.wet_tone_enabled=true;
+        filtered.engine.setParameters(p);filtered.engine.reset();
+        const double pole=std::exp(-2*pi*std::min(20000.0f,.45f*fs)/fs);
+        for(int n=0;n<128;++n) {
+            float a,b,c,d;filtered.engine.processSample(n == 0 ? .2f : 0,n == 2 ? -.1f : 0,a,b);
+            legacy.engine.processSample(n == 0 ? .2f : 0,n == 2 ? -.1f : 0,c,d);
+            const double wetL=n>=8 ? .05*(1-pole)*std::pow(pole,n-8) : 0;
+            const double wetR=n>=10 ? -.025*(1-pole)*std::pow(pole,n-10) : 0;
+            near(a,static_cast<float>((n == 0 ? .15 : 0)+wetL),1e-7f,"optional wet LP matches the analytical impulse at each Fs without filtering dry input");
+            near(b,static_cast<float>((n == 2 ? -.075 : 0)+wetR),1e-7f,"optional wet LP has independent stereo states and sample-rate-bounded cutoff");
+            near(c,n == 0 ? .15f : (n == 8 ? .05f : 0),1e-7f,"disabled wet tone retains the original analytical digital response");
+            near(d,n == 2 ? -.075f : (n == 10 ? -.025f : 0),1e-7f,"disabled wet tone retains original independent right timing");
+        }
+        p.mix=0;filtered.engine.setParameters(p);filtered.engine.reset();
+        for(unsigned n=0;n<128;++n) {
+            const float input=.2f*std::sin(n*.17f);float l,r;
+            filtered.engine.processSample(input,-input,l,r);
+            check(l==input && r==-input,"zero Mix keeps dry audio bit-exact with wet filtering enabled");
+        }
+        p.mix=1;p.tone_hz=1000;filtered.engine.setParameters(p);filtered.engine.reset();
+        float l=0,r=0;
+        for(unsigned n=0;n<static_cast<unsigned>(fs/10);++n) filtered.engine.processSample(.2f,-.1f,l,r);
+        near(l,.2f,2e-7f,"wet-tone low-pass retains unity DC gain");
+        near(r,-.1f,2e-7f,"wet-tone DC gain is independent in both channels");
+    }
+    // Independently convolve each model's unfiltered wet render with the
+    // closed-form one-pole impulse, then add its untouched dry signal.
+    for(auto model : allModels) {
+        Fixture filtered,plain;
+        auto p=neutralParameters();p.model=model;p.delay_ms=1;p.feedback=.4f;p.mix=1;p.tone_hz=1000;p.modulation_enabled=false;
+        plain.engine.setParameters(p);plain.engine.reset();p.mix=.25f;p.wet_tone_enabled=true;
+        filtered.engine.setParameters(p);filtered.engine.reset();
+        constexpr unsigned frames=96;float wetL[frames]{},wetR[frames]{};
+        const double pole=std::exp(-2*pi*1000/8000);
+        for(unsigned n=0;n<frames;++n) {
+            const float input=n == 0 ? .2f : (n == 11 ? -.1f : 0);float l,r;
+            plain.engine.processSample(input,-.5f*input,wetL[n],wetR[n]);
+            filtered.engine.processSample(input,-.5f*input,l,r);
+            double expectedL=.75*input,expectedR=-.375*input;
+            for(unsigned k=0;k<=n;++k) {
+                const double coefficient=.25*(1-pole)*std::pow(pole,n-k);
+                expectedL+=coefficient*wetL[k];expectedR+=coefficient*wetR[k];
+            }
+            near(l,static_cast<float>(expectedL),1e-7f,"every model applies optional Tone only to its wet output before mixing");
+            near(r,static_cast<float>(expectedR),1e-7f,"wet-tone placement preserves stereo dry gain across every model branch");
+        }
+        check(filtered.memory==plain.memory,"wet-tone output filtering never changes delay, feedback or looper capture memory");
+    }
+    Fixture reset;
+    auto p=neutralParameters();p.delay_ms=1;p.feedback=0;p.mix=1;p.tone_hz=1000;p.wet_tone_enabled=true;p.modulation_enabled=false;
+    reset.engine.setParameters(p);reset.engine.reset();float l=0,r=0;
+    for(unsigned n=0;n<200;++n) reset.engine.processSample(.2f,0,l,r);
+    const float first=.2f*(1-static_cast<float>(std::exp(-2*pi*1000/8000)));
+    p.model=echolab::Model::DigitalMod;reset.engine.setParameters(p);reset.engine.processSample(0,0,l,r);
+    near(l,first,1e-7f,"changing model clears optional wet-tone history without clearing shared audio memory");
+    p.voicing=1;reset.engine.setParameters(p);reset.engine.processSample(0,0,l,r);
+    near(l,first,1e-7f,"changing voicing clears optional wet-tone history");
+    reset.engine.reset();reset.engine.processSample(0,0,l,r);
+    check(l==0 && r==0,"reset clears optional wet-tone history and audio memory");
 }
 void liveLooperRecordUsesConfiguredTime() {
     for (float cv : {0.0f,1.0f}) {
@@ -887,7 +1034,7 @@ std::vector<echolab::ParameterEvent> timeline(std::size_t frames) {
         p.limiter_enabled=events.size()%2 == 0;p.limiter_ceiling=.7f;p.limiter_release_ms=20;
         p.sample_rate_hz=1000.0f+100.0f*static_cast<float>(events.size());
         p.exciter_amount=.8f;p.exciter_tune_hz=1200;
-        p.tap_pattern=static_cast<int>(events.size()%8);
+        p.tap_pattern=static_cast<int>(events.size()%echolab::multitap::patternCount);
         p.mod1_source=1+static_cast<int>(events.size()%5);p.mod1_destination=1+static_cast<int>(events.size()%8);p.mod1_amount=.7f;
         p.mod2_source=1+static_cast<int>((events.size()+1)%5);p.mod2_destination=1+static_cast<int>((events.size()+2)%8);p.mod2_amount=-.4f;
         p.feedback_lowpass_hz=events.size()%3 == 0 ? 0.0f : 4000.0f+200.0f*static_cast<float>(events.size());
@@ -1013,7 +1160,7 @@ void operator delete[](void* ptr,std::size_t) noexcept { std::free(ptr); }
 int main() {
     impulseAndInterpolation(); exact48kLongDelay(); stereoMusicalRatios(); pingPongTopology(); multiHeadTopology();
     lowResolutionQuantization();dynamicDuckingAndRecovery();automaticVolumeSwell();sharedMemoryCanariesAndModelChanges();
-    fractionalSampleRateReduction();decliningLoResPhraseEnvelope();oneWaySweepDirections();sweepFilterSpectra();feedbackAboveUnityAndLimiter();exciterInFeedbackOnly();selectableHeadPattern();liveLooperRecordUsesConfiguredTime();externalModulationRouting();
+    fractionalSampleRateReduction();decliningLoResPhraseEnvelope();oneWaySweepDirections();sweepFilterSpectra();feedbackAboveUnityAndLimiter();exciterInFeedbackOnly();optionalExciterHighpass();selectableHeadPattern();polyrhythmPulseGrids();optionalWetTone();liveLooperRecordUsesConfiguredTime();externalModulationRouting();
     feedbackLowpassPlacementAndSlope();feedbackHighpassPlacementAndSlope();rackRateIsModelSpecific();selectedVoicingsAndLegacyFeedback();optionalModulationAndLoResRateRoute();colourCompensationAndSlowDrift();
     memoryAndReset(); eventAndBlockInvariance(); ratesExtremesAndAllocations();
     if (failures) { std::cerr << failures << " DSP checks failed\n"; return 1; }

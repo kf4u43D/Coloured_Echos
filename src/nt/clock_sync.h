@@ -94,7 +94,7 @@ private:
     std::uint64_t counter_=0;
     std::uint32_t sampleRate_=48000,revision_=1;
     float bpm_=120;
-    int mode_=0,cvPpqn_=4,division_=2;
+    int mode_=3,cvPpqn_=4,division_=2;
     bool cvHigh_=false,midiRunning_=true;
 };
 

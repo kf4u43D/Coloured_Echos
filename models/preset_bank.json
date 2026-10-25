@@ -1,0 +1,384 @@
+{
+  "schema_version": 1,
+  "status": "provisional",
+  "tempo_policy": "Internal BPM; note divisions are stored independently of milliseconds.",
+  "defaults": {
+    "sync_mode": "internal",
+    "tempo_bpm": 120,
+    "division": "1/4",
+    "right_division": "ratio",
+    "model": "digital",
+    "feedback": 0.28,
+    "mix": 0.39,
+    "tone_hz": 3500,
+    "drive": 0.4,
+    "bit_depth": 8,
+    "mod_rate_hz": 1,
+    "mod_depth_ms": 6,
+    "duck_threshold_db": -24,
+    "duck_amount": 0.9,
+    "attack_ms": 5,
+    "release_ms": 250,
+    "swell_ms": 250,
+    "stereo_ratio": 1.5,
+    "loop_action": "record",
+    "limiter_enabled": true,
+    "limiter_ceiling": 0.891250938,
+    "limiter_release_ms": 150,
+    "sample_rate_hz": 8000,
+    "exciter_amount": 0.1,
+    "exciter_tune_hz": 4000,
+    "tap_pattern": 0,
+    "mod1_source": 0,
+    "mod1_destination": 0,
+    "mod1_amount": 0,
+    "mod2_source": 0,
+    "mod2_destination": 0,
+    "mod2_amount": 0,
+    "feedback_lowpass_hz": 12000,
+    "drift_amount": 0.25,
+    "feedback_highpass_hz": 80,
+    "lores_rate_end_hz": 1200,
+    "lores_rate_decay_ms": 1500,
+    "lores_rate_envelope_amount": 1,
+    "digital_rack_rate_hz": 16000,
+    "lores_cutoff_hz": 2000,
+    "voicing": "auto",
+    "modulation_enabled": true,
+    "exciter_highpass_enabled": false,
+    "wet_tone_enabled": false
+  },
+  "presets": [
+    {
+      "id": "clean_quarter",
+      "name": "Clean Quarter",
+      "purpose": "Clear repeats for rhythmic accompaniment.",
+      "technique": "A quarter-note delay with a gentle wet low-pass.",
+      "parameters": {
+        "model": "digital",
+        "division": "1/4",
+        "feedback": 0.28,
+        "tone_hz": 16000,
+        "drive": 0,
+        "voicing": "a05",
+        "modulation_enabled": false,
+        "wet_tone_enabled": true,
+        "feedback_lowpass_hz": 0,
+        "feedback_highpass_hz": 0,
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "wide_dotted",
+      "name": "Wide Dotted",
+      "purpose": "Moving dotted echoes for sustained parts.",
+      "technique": "A dotted eighth-note delay with slow pitch modulation.",
+      "parameters": {
+        "model": "digitalmod",
+        "division": "1/8D",
+        "feedback": 0.22,
+        "tone_hz": 16000,
+        "drive": 0,
+        "voicing": "a04",
+        "mod_rate_hz": 0.18,
+        "mod_depth_ms": 1.2,
+        "wet_tone_enabled": true
+      }
+    },
+    {
+      "id": "clocked_grain",
+      "name": "Clocked Grain",
+      "purpose": "Precise repeats with a restrained digital texture.",
+      "technique": "An eighth-note delay captured at a 16 kHz internal rate.",
+      "parameters": {
+        "model": "digitalrack",
+        "division": "1/8",
+        "feedback": 0.22,
+        "tone_hz": 16000,
+        "drive": 0,
+        "voicing": "b06",
+        "digital_rack_rate_hz": 16000,
+        "wet_tone_enabled": true,
+        "modulation_enabled": false,
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "analog_bounce",
+      "name": "Analog Bounce",
+      "purpose": "Dark, compact echoes around the dry phrase.",
+      "technique": "Dotted eighth notes with driven analog colour.",
+      "parameters": {
+        "model": "analog",
+        "division": "1/8D",
+        "feedback": 0.13,
+        "tone_hz": 2400,
+        "drive": 0.42,
+        "voicing": "a04",
+        "modulation_enabled": false,
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "tape_space",
+      "name": "Tape Space",
+      "purpose": "Warm quarter-note echoes with gentle motion.",
+      "technique": "Tape colour and a small amount of pitch movement.",
+      "parameters": {
+        "model": "tape",
+        "division": "1/4",
+        "feedback": 0.14,
+        "tone_hz": 4100,
+        "drive": 0.28,
+        "voicing": "a04",
+        "mod_rate_hz": 0.25,
+        "mod_depth_ms": 2.5
+      }
+    },
+    {
+      "id": "tube_slap",
+      "name": "Tube Slap",
+      "purpose": "A short body-building slap behind the dry sound.",
+      "technique": "A sixteenth-note tube echo with low feedback.",
+      "parameters": {
+        "model": "tube",
+        "division": "1/16",
+        "feedback": 0.1,
+        "tone_hz": 3000,
+        "drive": 0.45,
+        "voicing": "b06",
+        "mix": 0.3,
+        "modulation_enabled": false,
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "ducked_voice",
+      "name": "Ducked Voice",
+      "purpose": "Echoes that leave room for the incoming phrase.",
+      "technique": "Quarter-note repeats duck during the input and recover afterward.",
+      "parameters": {
+        "model": "dynamic",
+        "division": "1/4",
+        "feedback": 0.28,
+        "tone_hz": 4800,
+        "drive": 0,
+        "voicing": "b06",
+        "wet_tone_enabled": true,
+        "duck_amount": 0.9,
+        "duck_threshold_db": -30,
+        "attack_ms": 5,
+        "release_ms": 200
+      }
+    },
+    {
+      "id": "bloom",
+      "name": "Bloom",
+      "purpose": "A fully wet swell for soft entrances and pads.",
+      "technique": "A slow volume rise feeds short sixteenth-note echoes.",
+      "parameters": {
+        "model": "autovolume",
+        "division": "1/16",
+        "feedback": 0.22,
+        "tone_hz": 4400,
+        "drive": 0,
+        "voicing": "a05",
+        "mix": 1,
+        "wet_tone_enabled": true,
+        "swell_ms": 600,
+        "attack_ms": 2,
+        "release_ms": 500,
+        "duck_threshold_db": -40
+      }
+    },
+    {
+      "id": "reverse_pad",
+      "name": "Reverse Pad",
+      "purpose": "A spacious reverse layer for sustained material.",
+      "technique": "Half-note reverse segments with a dark wet tone.",
+      "parameters": {
+        "model": "reverse",
+        "division": "1/2",
+        "feedback": 0.2,
+        "tone_hz": 3800,
+        "drive": 0,
+        "voicing": "b06",
+        "mix": 0.65,
+        "wet_tone_enabled": true,
+        "modulation_enabled": false,
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "split_dots",
+      "name": "Split Dots",
+      "purpose": "Two complementary rhythms across the stereo field.",
+      "technique": "Quarter notes on the left and dotted eighth notes on the right.",
+      "parameters": {
+        "model": "stereo",
+        "division": "1/4",
+        "feedback": 0.24,
+        "tone_hz": 4600,
+        "drive": 0,
+        "voicing": "b06",
+        "right_division": "1/8D",
+        "wet_tone_enabled": true,
+        "modulation_enabled": false,
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "pingpong_width",
+      "name": "Pingpong Width",
+      "purpose": "Alternating repeats that open the stereo image.",
+      "technique": "An eighth-note delay passes its echoes between left and right.",
+      "parameters": {
+        "model": "pingpong",
+        "division": "1/8",
+        "feedback": 0.24,
+        "tone_hz": 5200,
+        "drive": 0,
+        "voicing": "b06",
+        "wet_tone_enabled": true,
+        "modulation_enabled": false,
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "crushed_8bit",
+      "name": "Crushed 8bit",
+      "purpose": "Grainy repeats that become coarser as the phrase fades.",
+      "technique": "Eight-bit dotted echoes with a descending internal sample rate.",
+      "parameters": {
+        "model": "8bit",
+        "division": "1/8D",
+        "feedback": 0.24,
+        "tone_hz": 1800,
+        "drive": 0,
+        "voicing": "b06",
+        "wet_tone_enabled": true,
+        "lores_cutoff_hz": 0,
+        "bit_depth": 8,
+        "sample_rate_hz": 8000,
+        "lores_rate_end_hz": 1200,
+        "lores_rate_envelope_amount": 1,
+        "lores_rate_decay_ms": 1500
+      }
+    },
+    {
+      "id": "high_spark",
+      "name": "High Spark",
+      "purpose": "Bright, lightweight repeats above the main phrase.",
+      "technique": "An eighth-note Exciter echo with a 300 Hz high-pass.",
+      "parameters": {
+        "model": "exciter",
+        "division": "1/8",
+        "feedback": 0.14,
+        "tone_hz": 5000,
+        "drive": 0.35,
+        "voicing": "a04",
+        "wet_tone_enabled": true,
+        "exciter_amount": 0.1,
+        "exciter_tune_hz": 4000,
+        "exciter_highpass_enabled": true,
+        "feedback_highpass_hz": 300
+      }
+    },
+    {
+      "id": "loop_bar",
+      "name": "Loop Bar",
+      "purpose": "Capture and repeat one bar at the selected tempo.",
+      "technique": "A fully wet whole-note stereo loop starts in Record.",
+      "parameters": {
+        "model": "looper",
+        "division": "1/1",
+        "feedback": 0.28,
+        "tone_hz": 20000,
+        "drive": 0,
+        "voicing": "b06",
+        "mix": 1,
+        "wet_tone_enabled": true,
+        "modulation_enabled": false,
+        "loop_action": "record",
+        "drift_amount": 0
+      }
+    },
+    {
+      "id": "three_against_two",
+      "name": "3 against 2",
+      "purpose": "A three-against-two rhythmic echo pattern.",
+      "technique": "Two merged pulse grids share a whole-note feedback cycle.",
+      "parameters": {
+        "model": "multihead",
+        "division": "1/1",
+        "feedback": 0.18,
+        "tone_hz": 3500,
+        "drive": 0.1,
+        "voicing": "b06",
+        "tap_pattern": 8
+      }
+    },
+    {
+      "id": "four_against_three",
+      "name": "4 against 3",
+      "purpose": "A four-against-three rhythmic echo pattern.",
+      "technique": "Two merged pulse grids share a whole-note feedback cycle.",
+      "parameters": {
+        "model": "multihead",
+        "division": "1/1",
+        "feedback": 0.16,
+        "tone_hz": 3900,
+        "drive": 0.08,
+        "voicing": "b06",
+        "tap_pattern": 9
+      }
+    },
+    {
+      "id": "five_against_four",
+      "name": "5 against 4",
+      "purpose": "A dense five-against-four rhythmic echo pattern.",
+      "technique": "Two merged pulse grids share a whole-note feedback cycle.",
+      "parameters": {
+        "model": "multihead",
+        "division": "1/1",
+        "feedback": 0.16,
+        "tone_hz": 3300,
+        "drive": 0.08,
+        "voicing": "b06",
+        "tap_pattern": 10
+      }
+    },
+    {
+      "id": "filter_lift",
+      "name": "Filter Lift",
+      "purpose": "A rising high-pass echo gesture.",
+      "technique": "A quarter-note delay with one upward filter sweep.",
+      "parameters": {
+        "model": "sweepup",
+        "division": "1/4",
+        "feedback": 0.2,
+        "tone_hz": 5200,
+        "drive": 0.1,
+        "voicing": "b06",
+        "mix": 0.5,
+        "mod_rate_hz": 0.5
+      }
+    },
+    {
+      "id": "filter_fall",
+      "name": "Filter Fall",
+      "purpose": "A descending low-pass echo gesture.",
+      "technique": "A quarter-note delay with one downward filter sweep.",
+      "parameters": {
+        "model": "sweep",
+        "division": "1/4",
+        "feedback": 0.18,
+        "tone_hz": 1900,
+        "drive": 0.1,
+        "voicing": "b06",
+        "mix": 0.5,
+        "mod_rate_hz": 0.5
+      }
+    }
+  ]
+}
